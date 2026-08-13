@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
   CheckCheck,
+  ChevronDown,
   Heart,
   LoaderCircle,
   LogOut,
@@ -125,13 +126,19 @@ export default function Chat() {
   const [isPartnerTyping, setIsPartnerTyping] = useState(false);
   const [seenMessageId, setSeenMessageId] = useState(0);
   const [socketConnected, setSocketConnected] = useState(false);
+  const [isNearBottom, setIsNearBottom] = useState(true);
+  const [unreadMessageCount, setUnreadMessageCount] = useState(0);
 
   const socketRef = useRef(null);
   const partnerRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const incomingTypingTimeoutRef = useRef(null);
+  const messageListRef = useRef(null);
   const messagesEndRef = useRef(null);
   const composerRef = useRef(null);
+  const knownMessageIdsRef = useRef(new Set());
+  const isNearBottomRef = useRef(true);
+  const shouldAutoScrollRef = useRef(true);
 
   const partnerIsOnline = onlineUsers.some(
     (onlineId) => Number(onlineId) === Number(partner?.id),
@@ -197,6 +204,18 @@ export default function Chat() {
 
       if (!belongsToConversation) return;
 
+      const messageId = String(incomingMessage.id);
+      if (knownMessageIdsRef.current.has(messageId)) return;
+      knownMessageIdsRef.current.add(messageId);
+
+      const isIncoming =
+        Number(incomingMessage.sender_id) !== Number(user.id);
+      shouldAutoScrollRef.current = !isIncoming || isNearBottomRef.current;
+
+      if (isIncoming && !isNearBottomRef.current) {
+        setUnreadMessageCount((count) => count + 1);
+      }
+
       setMessages((currentMessages) =>
         currentMessages.some(
           (message) => Number(message.id) === Number(incomingMessage.id),
@@ -257,8 +276,10 @@ export default function Chat() {
   useEffect(() => {
     if (!partner) {
       setMessages([]);
+      knownMessageIdsRef.current = new Set();
       setMessagesError("");
       setMessagesLoading(false);
+      setUnreadMessageCount(0);
       return;
     }
 
@@ -269,11 +290,18 @@ export default function Chat() {
       setMessagesError("");
       setReplyTarget(null);
       setActiveReactionMenuId(null);
+      setUnreadMessageCount(0);
+      isNearBottomRef.current = true;
+      setIsNearBottom(true);
+      shouldAutoScrollRef.current = true;
 
       try {
         const response = await API.get(`/messages/${partner.id}`);
         if (cancelled) return;
 
+        knownMessageIdsRef.current = new Set(
+          response.data.map((message) => String(message.id)),
+        );
         setMessages(response.data);
         const lastIncomingMessage = [...response.data]
           .reverse()
@@ -303,10 +331,18 @@ export default function Chat() {
   }, [partner, historyReloadKey]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({
-      behavior: messagesLoading ? "auto" : "smooth",
+    if (messagesLoading || !shouldAutoScrollRef.current) return undefined;
+
+    const animationFrame = requestAnimationFrame(() => {
+      messagesEndRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "end",
+      });
+      shouldAutoScrollRef.current = false;
     });
-  }, [messages, isPartnerTyping, messagesLoading]);
+
+    return () => cancelAnimationFrame(animationFrame);
+  }, [messages, messagesLoading]);
 
   useEffect(() => {
     return () => {
@@ -360,6 +396,32 @@ export default function Chat() {
   const handleReaction = (messageId, emoji) => {
     socketRef.current?.emit("react_message", { messageId, emoji });
     setActiveReactionMenuId(null);
+  };
+
+  const handleMessageListScroll = (event) => {
+    const messageList = event.currentTarget;
+    const distanceFromBottom =
+      messageList.scrollHeight -
+      messageList.scrollTop -
+      messageList.clientHeight;
+    const nextIsNearBottom = distanceFromBottom < 96;
+
+    isNearBottomRef.current = nextIsNearBottom;
+    setIsNearBottom(nextIsNearBottom);
+
+    if (nextIsNearBottom) {
+      setUnreadMessageCount(0);
+    }
+  };
+
+  const scrollToLatestMessage = () => {
+    messageListRef.current?.scrollTo({
+      top: messageListRef.current.scrollHeight,
+      behavior: "smooth",
+    });
+    isNearBottomRef.current = true;
+    setIsNearBottom(true);
+    setUnreadMessageCount(0);
   };
 
   if (partnerLoading) {
@@ -470,7 +532,12 @@ export default function Chat() {
           </div>
         ) : null}
 
-        <section className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-6 sm:py-6">
+        <div className="relative min-h-0 flex-1">
+          <section
+            ref={messageListRef}
+            onScroll={handleMessageListScroll}
+            className="h-full overflow-y-auto overscroll-contain px-3 py-4 sm:px-6 sm:py-6"
+          >
           {messagesLoading ? (
             <div className="flex h-full min-h-56 items-center justify-center gap-2 text-sm text-rose-100/60">
               <LoaderCircle className="h-5 w-5 animate-spin" />
@@ -658,7 +725,24 @@ export default function Chat() {
             </div>
           ) : null}
           <div ref={messagesEndRef} />
-        </section>
+          </section>
+
+          {!isNearBottom && (unreadMessageCount > 0 || isPartnerTyping) ? (
+            <button
+              type="button"
+              onClick={scrollToLatestMessage}
+              aria-live="polite"
+              className="new-message-pill absolute bottom-4 left-1/2 z-10 inline-flex -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-full border border-rose-300/25 bg-[#3a0a13]/95 px-4 py-2.5 text-xs font-extrabold text-rose-50 shadow-xl shadow-black/40 backdrop-blur-xl transition hover:border-rose-300/45 hover:bg-[#470d18] active:scale-95"
+            >
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-rose-500 text-white">
+                <ChevronDown className="h-3.5 w-3.5" />
+              </span>
+              {unreadMessageCount > 0
+                ? `${unreadMessageCount} new ${unreadMessageCount === 1 ? "message" : "messages"}`
+                : `${partner.username} is typing...`}
+            </button>
+          ) : null}
+        </div>
 
         <form
           onSubmit={handleSendMessage}
