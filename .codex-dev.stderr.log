@@ -1,0 +1,21 @@
+node:internal/child_process:441
+    throw new ErrnoException(err, 'spawn');
+    ^
+
+Error: spawn EINVAL
+    at ChildProcess.spawn (node:internal/child_process:441:11)
+    at spawn (node:child_process:796:9)
+    at startWorkspace (C:\Users\User\Desktop\project\chat-me-app\scripts\dev.js:6:17)
+    at Object.<anonymous> (C:\Users\User\Desktop\project\chat-me-app\scripts\dev.js:24:23)
+    at Module._compile (node:internal/modules/cjs/loader:1830:14)
+    at Object..js (node:internal/modules/cjs/loader:1961:10)
+    at Module.load (node:internal/modules/cjs/loader:1553:32)
+    at Module._load (node:internal/modules/cjs/loader:1355:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5) {
+  errno: -4071,
+  code: 'EINVAL',
+  syscall: 'spawn'
+}
+
+Node.js v24.15.0

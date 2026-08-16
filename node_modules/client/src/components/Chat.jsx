@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import {
   AlertCircle,
@@ -20,8 +20,9 @@ import { io } from "socket.io-client";
 import { useAuth } from "../context/AuthContext";
 import API from "../services/api";
 
-const REACTION_OPTIONS = ["👍", "❤️", "😂", "😮", "😢", "😡"];
+const REACTION_OPTIONS = ["👍", "❤️", "😂", "😮", "😢", "🥰"];
 const MAX_MESSAGE_LENGTH = 2000;
+const MESSAGE_PAGE_SIZE = 50;
 
 function getReactions(message) {
   if (!message?.reactions) return {};
@@ -118,6 +119,10 @@ export default function Chat() {
   const [messages, setMessages] = useState([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [messagesError, setMessagesError] = useState("");
+  const [hasOlderMessages, setHasOlderMessages] = useState(false);
+  const [olderMessagesCursor, setOlderMessagesCursor] = useState(null);
+  const [olderMessagesLoading, setOlderMessagesLoading] = useState(false);
+  const [olderMessagesError, setOlderMessagesError] = useState("");
   const [historyReloadKey, setHistoryReloadKey] = useState(0);
   const [newMessage, setNewMessage] = useState("");
   const [replyTarget, setReplyTarget] = useState(null);
@@ -139,6 +144,8 @@ export default function Chat() {
   const knownMessageIdsRef = useRef(new Set());
   const isNearBottomRef = useRef(true);
   const shouldAutoScrollRef = useRef(true);
+  const loadingOlderMessagesRef = useRef(false);
+  const pendingScrollAdjustmentRef = useRef(null);
 
   const partnerIsOnline = onlineUsers.some(
     (onlineId) => Number(onlineId) === Number(partner?.id),
@@ -279,6 +286,12 @@ export default function Chat() {
       knownMessageIdsRef.current = new Set();
       setMessagesError("");
       setMessagesLoading(false);
+      setHasOlderMessages(false);
+      setOlderMessagesCursor(null);
+      setOlderMessagesLoading(false);
+      setOlderMessagesError("");
+      loadingOlderMessagesRef.current = false;
+      pendingScrollAdjustmentRef.current = null;
       setUnreadMessageCount(0);
       return;
     }
@@ -288,6 +301,12 @@ export default function Chat() {
     const fetchHistory = async () => {
       setMessagesLoading(true);
       setMessagesError("");
+      setHasOlderMessages(false);
+      setOlderMessagesCursor(null);
+      setOlderMessagesLoading(false);
+      setOlderMessagesError("");
+      loadingOlderMessagesRef.current = false;
+      pendingScrollAdjustmentRef.current = null;
       setReplyTarget(null);
       setActiveReactionMenuId(null);
       setUnreadMessageCount(0);
@@ -296,14 +315,25 @@ export default function Chat() {
       shouldAutoScrollRef.current = true;
 
       try {
-        const response = await API.get(`/messages/${partner.id}`);
+        const response = await API.get(`/messages/${partner.id}`, {
+          params: { limit: MESSAGE_PAGE_SIZE },
+        });
         if (cancelled) return;
 
+        const historyMessages = Array.isArray(response.data)
+          ? response.data
+          : response.data.messages;
         knownMessageIdsRef.current = new Set(
-          response.data.map((message) => String(message.id)),
+          historyMessages.map((message) => String(message.id)),
         );
-        setMessages(response.data);
-        const lastIncomingMessage = [...response.data]
+        setMessages(historyMessages);
+        setHasOlderMessages(
+          Array.isArray(response.data) ? false : response.data.hasMore,
+        );
+        setOlderMessagesCursor(
+          Array.isArray(response.data) ? null : response.data.nextCursor,
+        );
+        const lastIncomingMessage = [...historyMessages]
           .reverse()
           .find(
             (message) => Number(message.sender_id) === Number(partner.id),
@@ -329,6 +359,18 @@ export default function Chat() {
       cancelled = true;
     };
   }, [partner, historyReloadKey]);
+
+  useLayoutEffect(() => {
+    const pendingAdjustment = pendingScrollAdjustmentRef.current;
+    const messageList = messageListRef.current;
+    if (!pendingAdjustment || !messageList) return;
+
+    messageList.scrollTop =
+      messageList.scrollHeight -
+      pendingAdjustment.scrollHeight +
+      pendingAdjustment.scrollTop;
+    pendingScrollAdjustmentRef.current = null;
+  }, [messages]);
 
   useEffect(() => {
     if (messagesLoading || !shouldAutoScrollRef.current) return undefined;
@@ -396,6 +438,68 @@ export default function Chat() {
   const handleReaction = (messageId, emoji) => {
     socketRef.current?.emit("react_message", { messageId, emoji });
     setActiveReactionMenuId(null);
+  };
+
+  const loadOlderMessages = async () => {
+    if (
+      !partner ||
+      !hasOlderMessages ||
+      !olderMessagesCursor ||
+      loadingOlderMessagesRef.current
+    ) {
+      return;
+    }
+
+    const messageList = messageListRef.current;
+    loadingOlderMessagesRef.current = true;
+    setOlderMessagesLoading(true);
+    setOlderMessagesError("");
+
+    try {
+      const response = await API.get(`/messages/${partner.id}`, {
+        params: {
+          before: olderMessagesCursor,
+          limit: MESSAGE_PAGE_SIZE,
+        },
+      });
+
+      if (Number(partnerRef.current?.id) !== Number(partner.id)) return;
+
+      const olderMessages = Array.isArray(response.data)
+        ? response.data
+        : response.data.messages;
+      const uniqueOlderMessages = olderMessages.filter(
+        (message) => !knownMessageIdsRef.current.has(String(message.id)),
+      );
+
+      if (uniqueOlderMessages.length > 0 && messageList) {
+        pendingScrollAdjustmentRef.current = {
+          scrollHeight: messageList.scrollHeight,
+          scrollTop: messageList.scrollTop,
+        };
+        uniqueOlderMessages.forEach((message) =>
+          knownMessageIdsRef.current.add(String(message.id)),
+        );
+        shouldAutoScrollRef.current = false;
+        setMessages((currentMessages) => [
+          ...uniqueOlderMessages,
+          ...currentMessages,
+        ]);
+      }
+
+      setHasOlderMessages(
+        Array.isArray(response.data) ? false : response.data.hasMore,
+      );
+      setOlderMessagesCursor(
+        Array.isArray(response.data) ? null : response.data.nextCursor,
+      );
+    } catch (error) {
+      console.error("Failed to fetch earlier messages", error);
+      setOlderMessagesError("Couldn't load earlier messages.");
+    } finally {
+      loadingOlderMessagesRef.current = false;
+      setOlderMessagesLoading(false);
+    }
   };
 
   const handleMessageListScroll = (event) => {
@@ -570,6 +674,31 @@ export default function Chat() {
             </div>
           ) : (
             <div className="space-y-3 sm:space-y-4">
+              {hasOlderMessages || olderMessagesError ? (
+                <div className="flex flex-col items-center gap-2 pb-2">
+                  {hasOlderMessages ? (
+                    <button
+                      type="button"
+                      onClick={loadOlderMessages}
+                      disabled={olderMessagesLoading}
+                      className="inline-flex items-center gap-2 rounded-full border border-rose-900/40 bg-[#22070c]/90 px-4 py-2 text-xs font-bold text-rose-100/70 transition hover:border-rose-600/50 hover:text-rose-50 disabled:cursor-wait disabled:opacity-60"
+                    >
+                      {olderMessagesLoading ? (
+                        <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                      ) : null}
+                      {olderMessagesLoading
+                        ? "Loading earlier messages..."
+                        : "Load earlier messages"}
+                    </button>
+                  ) : null}
+                  {olderMessagesError ? (
+                    <p className="text-xs text-red-200/80">
+                      {olderMessagesError}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
               {messages.map((message, index) => {
                 const isMe =
                   Number(message.sender_id) === Number(user.id);

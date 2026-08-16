@@ -2,7 +2,7 @@ const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 
 const pool = require('./config/db');
-const ALLOWED_REACTIONS = new Set(['👍', '❤️', '😂', '😮', '😢', '😡']);
+const ALLOWED_REACTIONS = new Set(['👍', '❤️', '😂', '😮', '😢', '🥰']);
 const MAX_MESSAGE_LENGTH = 2000;
 
 function normalizeReactions(reactions) {
@@ -37,6 +37,11 @@ async function ensureMessageFeaturesSchema() {
     await pool.query(
       `ALTER TABLE messages
          ADD COLUMN IF NOT EXISTS reactions JSONB NOT NULL DEFAULT '{}'::jsonb`
+    );
+
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS messages_conversation_id_idx
+         ON messages (sender_id, receiver_id, id DESC)`
     );
   } catch (error) {
     console.error('Failed to ensure message feature columns:', error);
