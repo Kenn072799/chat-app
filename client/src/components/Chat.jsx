@@ -134,6 +134,9 @@ export default function Chat() {
   const [isNearBottom, setIsNearBottom] = useState(true);
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
   const [titleUnreadCount, setTitleUnreadCount] = useState(0);
+  const [highlightedMessageId, setHighlightedMessageId] = useState(null);
+  const [replyNavigationMessageId, setReplyNavigationMessageId] =
+    useState(null);
 
   const socketRef = useRef(null);
   const partnerRef = useRef(null);
@@ -147,6 +150,9 @@ export default function Chat() {
   const shouldAutoScrollRef = useRef(true);
   const loadingOlderMessagesRef = useRef(false);
   const pendingScrollAdjustmentRef = useRef(null);
+  const pendingReplyScrollRef = useRef(null);
+  const replyNavigationRef = useRef(false);
+  const highlightTimeoutRef = useRef(null);
   const originalDocumentTitleRef = useRef(document.title);
 
   const partnerIsOnline = onlineUsers.some(
@@ -325,6 +331,10 @@ export default function Chat() {
       setOlderMessagesError("");
       loadingOlderMessagesRef.current = false;
       pendingScrollAdjustmentRef.current = null;
+      pendingReplyScrollRef.current = null;
+      replyNavigationRef.current = false;
+      setReplyNavigationMessageId(null);
+      setHighlightedMessageId(null);
       setUnreadMessageCount(0);
       return;
     }
@@ -340,6 +350,10 @@ export default function Chat() {
       setOlderMessagesError("");
       loadingOlderMessagesRef.current = false;
       pendingScrollAdjustmentRef.current = null;
+      pendingReplyScrollRef.current = null;
+      replyNavigationRef.current = false;
+      setReplyNavigationMessageId(null);
+      setHighlightedMessageId(null);
       setReplyTarget(null);
       setActiveReactionMenuId(null);
       setUnreadMessageCount(0);
@@ -396,13 +410,36 @@ export default function Chat() {
   useLayoutEffect(() => {
     const pendingAdjustment = pendingScrollAdjustmentRef.current;
     const messageList = messageListRef.current;
-    if (!pendingAdjustment || !messageList) return;
+    if (!messageList) return;
 
-    messageList.scrollTop =
-      messageList.scrollHeight -
-      pendingAdjustment.scrollHeight +
-      pendingAdjustment.scrollTop;
-    pendingScrollAdjustmentRef.current = null;
+    if (pendingAdjustment) {
+      messageList.scrollTop =
+        messageList.scrollHeight -
+        pendingAdjustment.scrollHeight +
+        pendingAdjustment.scrollTop;
+      pendingScrollAdjustmentRef.current = null;
+    }
+
+    const pendingReplyId = pendingReplyScrollRef.current;
+    if (pendingReplyId) {
+      const originalMessage = messageList.querySelector(
+        `[data-message-id="${pendingReplyId}"]`,
+      );
+
+      if (originalMessage) {
+        originalMessage.scrollIntoView({ behavior: "smooth", block: "center" });
+        setHighlightedMessageId(Number(pendingReplyId));
+        if (highlightTimeoutRef.current) {
+          clearTimeout(highlightTimeoutRef.current);
+        }
+        highlightTimeoutRef.current = setTimeout(
+          () => setHighlightedMessageId(null),
+          1800,
+        );
+      }
+
+      pendingReplyScrollRef.current = null;
+    }
   }, [messages]);
 
   useEffect(() => {
@@ -422,6 +459,7 @@ export default function Chat() {
   useEffect(() => {
     return () => {
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
     };
   }, []);
 
@@ -473,12 +511,115 @@ export default function Chat() {
     setActiveReactionMenuId(null);
   };
 
+  const revealLoadedMessage = (messageId) => {
+    const normalizedMessageId = Number(messageId);
+    const originalMessage = messageListRef.current?.querySelector(
+      `[data-message-id="${normalizedMessageId}"]`,
+    );
+    if (!originalMessage) return false;
+
+    originalMessage.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightedMessageId(normalizedMessageId);
+    if (highlightTimeoutRef.current) {
+      clearTimeout(highlightTimeoutRef.current);
+    }
+    highlightTimeoutRef.current = setTimeout(
+      () => setHighlightedMessageId(null),
+      1800,
+    );
+    return true;
+  };
+
+  const handleReplyReferenceClick = async (messageId) => {
+    const targetMessageId = Number(messageId);
+    if (
+      !Number.isInteger(targetMessageId) ||
+      replyNavigationRef.current ||
+      loadingOlderMessagesRef.current
+    ) {
+      return;
+    }
+    if (revealLoadedMessage(targetMessageId)) return;
+
+    if (!partner || !hasOlderMessages || !olderMessagesCursor) return;
+
+    replyNavigationRef.current = true;
+    setReplyNavigationMessageId(targetMessageId);
+    setOlderMessagesError("");
+
+    let cursor = olderMessagesCursor;
+    let hasMore = hasOlderMessages;
+    let collectedMessages = [];
+    const collectedMessageIds = new Set();
+
+    try {
+      while (hasMore && cursor) {
+        const response = await API.get(`/messages/${partner.id}`, {
+          params: { before: cursor, limit: MESSAGE_PAGE_SIZE },
+        });
+
+        if (Number(partnerRef.current?.id) !== Number(partner.id)) return;
+
+        const pageMessages = Array.isArray(response.data)
+          ? response.data
+          : response.data.messages;
+        const uniquePageMessages = pageMessages.filter((message) => {
+          const id = String(message.id);
+          if (
+            knownMessageIdsRef.current.has(id) ||
+            collectedMessageIds.has(id)
+          ) {
+            return false;
+          }
+          collectedMessageIds.add(id);
+          return true;
+        });
+
+        collectedMessages = [...uniquePageMessages, ...collectedMessages];
+        const foundTarget = pageMessages.some(
+          (message) => Number(message.id) === targetMessageId,
+        );
+        const nextCursor = Array.isArray(response.data)
+          ? null
+          : response.data.nextCursor;
+        hasMore = Array.isArray(response.data) ? false : response.data.hasMore;
+
+        if (foundTarget) {
+          collectedMessages.forEach((message) =>
+            knownMessageIdsRef.current.add(String(message.id)),
+          );
+          pendingReplyScrollRef.current = targetMessageId;
+          shouldAutoScrollRef.current = false;
+          setHasOlderMessages(hasMore);
+          setOlderMessagesCursor(nextCursor);
+          setMessages((currentMessages) => [
+            ...collectedMessages,
+            ...currentMessages,
+          ]);
+          return;
+        }
+
+        if (!nextCursor || String(nextCursor) === String(cursor)) break;
+        cursor = nextCursor;
+      }
+
+      setOlderMessagesError("The original message is no longer available.");
+    } catch (error) {
+      console.error("Failed to find original message", error);
+      setOlderMessagesError("Couldn't load the original message.");
+    } finally {
+      replyNavigationRef.current = false;
+      setReplyNavigationMessageId(null);
+    }
+  };
+
   const loadOlderMessages = async () => {
     if (
       !partner ||
       !hasOlderMessages ||
       !olderMessagesCursor ||
-      loadingOlderMessagesRef.current
+      loadingOlderMessagesRef.current ||
+      replyNavigationRef.current
     ) {
       return;
     }
@@ -675,218 +816,237 @@ export default function Chat() {
             onScroll={handleMessageListScroll}
             className="h-full overflow-y-auto overscroll-contain px-3 py-4 sm:px-6 sm:py-6"
           >
-          {messagesLoading ? (
-            <div className="flex h-full min-h-56 items-center justify-center gap-2 text-sm text-rose-100/60">
-              <LoaderCircle className="h-5 w-5 animate-spin" />
-              Loading your messages...
-            </div>
-          ) : messagesError ? (
-            <div className="chat-intro flex h-full min-h-56 flex-col items-center justify-center gap-3 text-center text-rose-100/70">
-              <AlertCircle className="h-7 w-7 text-red-300" />
-              <p>{messagesError}</p>
-              <button
-                type="button"
-                onClick={() => setHistoryReloadKey((key) => key + 1)}
-                className="inline-flex items-center gap-2 rounded-full bg-[#2a0910] px-4 py-2 font-bold text-rose-50"
-              >
-                <RefreshCw className="h-3.5 w-3.5" /> Try again
-              </button>
-            </div>
-          ) : messages.length === 0 ? (
-            <div className="chat-intro flex h-full min-h-56 flex-col items-center justify-center px-6 text-center">
-              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-[1.75rem] border border-rose-900/40 bg-[#2a0910] text-rose-200 shadow-xl shadow-black/20">
-                <MessageSquare className="h-7 w-7" />
+            {messagesLoading ? (
+              <div className="flex h-full min-h-56 items-center justify-center gap-2 text-sm text-rose-100/60">
+                <LoaderCircle className="h-5 w-5 animate-spin" />
+                Loading your messages...
               </div>
-              <h2 className="text-lg font-extrabold text-rose-50">
-                Your private space is ready
-              </h2>
-              <p className="mt-2 max-w-xs text-sm leading-relaxed text-rose-100/55">
-                Send the first little hello. This conversation belongs to the two
-                of you.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-3 sm:space-y-4">
-              {hasOlderMessages || olderMessagesError ? (
-                <div className="flex flex-col items-center gap-2 pb-2">
-                  {hasOlderMessages ? (
-                    <button
-                      type="button"
-                      onClick={loadOlderMessages}
-                      disabled={olderMessagesLoading}
-                      className="inline-flex items-center gap-2 rounded-full border border-rose-900/40 bg-[#22070c]/90 px-4 py-2 text-xs font-bold text-rose-100/70 transition hover:border-rose-600/50 hover:text-rose-50 disabled:cursor-wait disabled:opacity-60"
-                    >
-                      {olderMessagesLoading ? (
-                        <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-                      ) : null}
-                      {olderMessagesLoading
-                        ? "Loading earlier messages..."
-                        : "Load earlier messages"}
-                    </button>
-                  ) : null}
-                  {olderMessagesError ? (
-                    <p className="text-xs text-red-200/80">
-                      {olderMessagesError}
-                    </p>
-                  ) : null}
+            ) : messagesError ? (
+              <div className="chat-intro flex h-full min-h-56 flex-col items-center justify-center gap-3 text-center text-rose-100/70">
+                <AlertCircle className="h-7 w-7 text-red-300" />
+                <p>{messagesError}</p>
+                <button
+                  type="button"
+                  onClick={() => setHistoryReloadKey((key) => key + 1)}
+                  className="inline-flex items-center gap-2 rounded-full bg-[#2a0910] px-4 py-2 font-bold text-rose-50"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" /> Try again
+                </button>
+              </div>
+            ) : messages.length === 0 ? (
+              <div className="chat-intro flex h-full min-h-56 flex-col items-center justify-center px-6 text-center">
+                <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-[1.75rem] border border-rose-900/40 bg-[#2a0910] text-rose-200 shadow-xl shadow-black/20">
+                  <MessageSquare className="h-7 w-7" />
                 </div>
-              ) : null}
-
-              {messages.map((message, index) => {
-                const isMe =
-                  Number(message.sender_id) === Number(user.id);
-                const reactionSummary = getReactionSummary(message);
-                const isReactionMenuOpen =
-                  Number(activeReactionMenuId) === Number(message.id);
-                const showDay = isDifferentDay(message, messages[index - 1]);
-                const isLastOutgoing =
-                  isMe &&
-                  Number(lastOutgoingMessage?.id) === Number(message.id);
-
-                return (
-                  <div key={message.id}>
-                    {showDay ? (
-                      <div className="day-divider my-5 flex items-center gap-3">
-                        <span className="h-px flex-1 bg-rose-900/30" />
-                        <span className="rounded-full border border-rose-900/30 bg-[#22070c]/80 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-rose-100/45">
-                          {formatConversationDay(message.created_at)}
-                        </span>
-                        <span className="h-px flex-1 bg-rose-900/30" />
-                      </div>
+                <h2 className="text-lg font-extrabold text-rose-50">
+                  Your private space is ready
+                </h2>
+                <p className="mt-2 max-w-xs text-sm leading-relaxed text-rose-100/55">
+                  Send the first little hello. This conversation belongs to the two
+                  of you.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3 sm:space-y-4">
+                {hasOlderMessages || olderMessagesError ? (
+                  <div className="flex flex-col items-center gap-2 pb-2">
+                    {hasOlderMessages ? (
+                      <button
+                        type="button"
+                        onClick={loadOlderMessages}
+                        disabled={olderMessagesLoading}
+                        className="inline-flex items-center gap-2 rounded-full border border-rose-900/40 bg-[#22070c]/90 px-4 py-2 text-xs font-bold text-rose-100/70 transition hover:border-rose-600/50 hover:text-rose-50 disabled:cursor-wait disabled:opacity-60"
+                      >
+                        {olderMessagesLoading ? (
+                          <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                        ) : null}
+                        {olderMessagesLoading
+                          ? "Loading earlier messages..."
+                          : "Load earlier messages"}
+                      </button>
                     ) : null}
+                    {olderMessagesError ? (
+                      <p className="text-xs text-red-200/80">
+                        {olderMessagesError}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
 
-                    <div
-                      className={`message-enter flex ${isMe ? "justify-end" : "justify-start"
-                        }`}
-                      style={{
-                        animationDelay: `${Math.min(index * 18, 140)}ms`,
-                      }}
-                    >
-                      <div className="max-w-[88%] sm:max-w-[72%]">
+                {messages.map((message, index) => {
+                  const isMe =
+                    Number(message.sender_id) === Number(user.id);
+                  const reactionSummary = getReactionSummary(message);
+                  const isReactionMenuOpen =
+                    Number(activeReactionMenuId) === Number(message.id);
+                  const showDay = isDifferentDay(message, messages[index - 1]);
+                  const isLastOutgoing =
+                    isMe &&
+                    Number(lastOutgoingMessage?.id) === Number(message.id);
+
+                  return (
+                    <div key={message.id}>
+                      {showDay ? (
+                        <div className="day-divider my-5 flex items-center gap-3">
+                          <span className="h-px flex-1 bg-rose-900/30" />
+                          <span className="rounded-full border border-rose-900/30 bg-[#22070c]/80 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-rose-100/45">
+                            {formatConversationDay(message.created_at)}
+                          </span>
+                          <span className="h-px flex-1 bg-rose-900/30" />
+                        </div>
+                      ) : null}
+
+                      <div
+                        className={`message-enter flex ${isMe ? "justify-end" : "justify-start"
+                          }`}
+                        style={{
+                          animationDelay: `${Math.min(index * 18, 140)}ms`,
+                        }}
+                      >
                         <div
-                          className={`rounded-[1.55rem] px-4 py-3 text-sm leading-relaxed shadow-lg sm:text-[15px] ${isMe
+                          data-message-id={message.id}
+                          className={`max-w-[88%] scroll-my-24 rounded-[1.6rem] transition duration-500 sm:max-w-[72%] ${Number(highlightedMessageId) === Number(message.id)
+                            ? "bg-rose-300/10 ring-2 ring-rose-300/60 ring-offset-4 ring-offset-[#130507]"
+                            : ""
+                            }`}
+                        >
+                          <div
+                            className={`rounded-[1.55rem] px-4 py-3 text-sm leading-relaxed shadow-lg sm:text-[15px] ${isMe
                               ? "rounded-br-md border border-rose-500/30 bg-gradient-to-br from-rose-600 to-pink-700 text-white shadow-rose-950/20"
                               : "rounded-bl-md border border-rose-900/50 bg-[#2a0910] text-rose-50 shadow-black/20"
-                            }`}
-                        >
-                          {message.reply_to_message_id ? (
-                            <button
-                              type="button"
-                              onClick={() => setReplyTarget(message)}
-                              className="mb-2 block w-full rounded-[1rem] border border-white/10 bg-black/15 p-2 text-left text-xs text-rose-100/70"
-                            >
-                              <span className="mb-1 block font-semibold text-rose-50">
-                                Reply to{" "}
-                                {message.reply_to_sender_username || "message"}
-                              </span>
-                              <span className="block truncate">
-                                {message.reply_to_content || "Shared a message"}
-                              </span>
-                            </button>
-                          ) : null}
-                          <div className="whitespace-pre-wrap break-words">
-                            {message.content}
-                          </div>
-                        </div>
-
-                        <div
-                          className={`mt-1.5 flex flex-wrap items-center gap-1.5 px-1 ${isMe ? "justify-end" : "justify-start"
-                            }`}
-                        >
-                          {reactionSummary.map(({ emoji, count }) => (
-                            <span
-                              key={`${message.id}-${emoji}`}
-                              className="reaction-pop rounded-full border border-rose-900/40 bg-[#22070c] px-2 py-1 text-[11px] font-semibold text-rose-50"
-                            >
-                              {emoji} {count}
-                            </span>
-                          ))}
-
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setActiveReactionMenuId((currentId) =>
-                                Number(currentId) === Number(message.id)
-                                  ? null
-                                  : message.id,
-                              )
-                            }
-                            aria-label={
-                              isReactionMenuOpen
-                                ? "Close reaction picker"
-                                : "React to message"
-                            }
-                            className="message-action inline-flex h-8 w-8 items-center justify-center rounded-full border border-rose-900/30 bg-[#22070c]/80 text-rose-100/60 transition hover:border-rose-600/50 hover:text-rose-50 active:scale-90"
-                          >
-                            {isReactionMenuOpen ? (
-                              <X className="h-3.5 w-3.5" />
-                            ) : (
-                              <Smile className="h-3.5 w-3.5" />
-                            )}
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setReplyTarget(message);
-                              setActiveReactionMenuId(null);
-                              composerRef.current?.focus();
-                            }}
-                            aria-label="Reply to message"
-                            className="message-action inline-flex h-8 w-8 items-center justify-center rounded-full border border-rose-900/30 bg-[#22070c]/80 text-rose-100/60 transition hover:border-rose-600/50 hover:text-rose-50 active:scale-90"
-                          >
-                            <Reply className="h-3.5 w-3.5" />
-                          </button>
-
-                          <span className="px-1 text-[10px] text-rose-100/45">
-                            {formatMessageTime(message.created_at)}
-                          </span>
-
-                          {isLastOutgoing ? (
-                            <span className="inline-flex items-center gap-1 text-[10px] text-rose-100/50">
-                              <CheckCheck className="h-3.5 w-3.5" />
-                              {seenMessageId >= Number(message.id)
-                                ? "Seen"
-                                : "Sent"}
-                            </span>
-                          ) : null}
-                        </div>
-
-                        {isReactionMenuOpen ? (
-                          <div
-                            className={`reaction-picker-enter mt-2 flex gap-1.5 px-1 ${isMe ? "justify-end" : "justify-start"
                               }`}
                           >
-                            {REACTION_OPTIONS.map((emoji) => (
+                            {message.reply_to_message_id ? (
                               <button
-                                key={emoji}
                                 type="button"
-                                onClick={() => handleReaction(message.id, emoji)}
-                                className="flex h-9 w-9 items-center justify-center rounded-full border border-rose-900/40 bg-[#2a0910] text-base shadow-lg shadow-black/20 transition hover:-translate-y-0.5 hover:border-rose-500/50 active:scale-90"
+                                onClick={() =>
+                                  handleReplyReferenceClick(
+                                    message.reply_to_message_id,
+                                  )
+                                }
+                                disabled={replyNavigationMessageId !== null}
+                                aria-label="Go to original message"
+                                className="mb-2 block w-full rounded-[1rem] border border-white/10 bg-black/15 p-2 text-left text-xs text-rose-100/70 transition hover:border-white/20 hover:bg-black/25 disabled:cursor-wait"
                               >
-                                {emoji}
+                                <span className="mb-1 flex items-center gap-1.5 font-semibold text-rose-50">
+                                  {Number(replyNavigationMessageId) ===
+                                    Number(message.reply_to_message_id) ? (
+                                    <LoaderCircle className="h-3 w-3 animate-spin" />
+                                  ) : null}
+                                  Reply to{" "}
+                                  {Number(message.reply_to_sender_id) ===
+                                  Number(user.id)
+                                    ? "you"
+                                    : message.reply_to_sender_username || "message"}
+                                </span>
+                                <span className="block truncate">
+                                  {message.reply_to_content || "Shared a message"}
+                                </span>
                               </button>
-                            ))}
+                            ) : null}
+                            <div className="whitespace-pre-wrap break-words">
+                              {message.content}
+                            </div>
                           </div>
-                        ) : null}
+
+                          <div
+                            className={`mt-1.5 flex flex-wrap items-center gap-1.5 px-1 ${isMe ? "justify-end" : "justify-start"
+                              }`}
+                          >
+                            {reactionSummary.map(({ emoji, count }) => (
+                              <span
+                                key={`${message.id}-${emoji}`}
+                                className="reaction-pop rounded-full border border-rose-900/40 bg-[#22070c] px-2 py-1 text-[11px] font-semibold text-rose-50"
+                              >
+                                {emoji} {count}
+                              </span>
+                            ))}
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setActiveReactionMenuId((currentId) =>
+                                  Number(currentId) === Number(message.id)
+                                    ? null
+                                    : message.id,
+                                )
+                              }
+                              aria-label={
+                                isReactionMenuOpen
+                                  ? "Close reaction picker"
+                                  : "React to message"
+                              }
+                              className="message-action inline-flex h-8 w-8 items-center justify-center rounded-full border border-rose-900/30 bg-[#22070c]/80 text-rose-100/60 transition hover:border-rose-600/50 hover:text-rose-50 active:scale-90"
+                            >
+                              {isReactionMenuOpen ? (
+                                <X className="h-3.5 w-3.5" />
+                              ) : (
+                                <Smile className="h-3.5 w-3.5" />
+                              )}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setReplyTarget(message);
+                                setActiveReactionMenuId(null);
+                                composerRef.current?.focus();
+                              }}
+                              aria-label="Reply to message"
+                              className="message-action inline-flex h-8 w-8 items-center justify-center rounded-full border border-rose-900/30 bg-[#22070c]/80 text-rose-100/60 transition hover:border-rose-600/50 hover:text-rose-50 active:scale-90"
+                            >
+                              <Reply className="h-3.5 w-3.5" />
+                            </button>
+
+                            <span className="px-1 text-[10px] text-rose-100/45">
+                              {formatMessageTime(message.created_at)}
+                            </span>
+
+                            {isLastOutgoing ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] text-rose-100/50">
+                                <CheckCheck className="h-3.5 w-3.5" />
+                                {seenMessageId >= Number(message.id)
+                                  ? "Seen"
+                                  : "Sent"}
+                              </span>
+                            ) : null}
+                          </div>
+
+                          {isReactionMenuOpen ? (
+                            <div
+                              className={`reaction-picker-enter mt-2 flex gap-1.5 px-1 ${isMe ? "justify-end" : "justify-start"
+                                }`}
+                            >
+                              {REACTION_OPTIONS.map((emoji) => (
+                                <button
+                                  key={emoji}
+                                  type="button"
+                                  onClick={() => handleReaction(message.id, emoji)}
+                                  className="flex h-9 w-9 items-center justify-center rounded-full border border-rose-900/40 bg-[#2a0910] text-base shadow-lg shadow-black/20 transition hover:-translate-y-0.5 hover:border-rose-500/50 active:scale-90"
+                                >
+                                  {emoji}
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {isPartnerTyping ? (
-            <div className="typing-enter mt-3 flex justify-start px-1">
-              <div className="inline-flex items-center gap-1 rounded-full border border-rose-900/40 bg-[#2a0910] px-3 py-2">
-                <span className="typing-dot h-1.5 w-1.5 rounded-full bg-rose-300" />
-                <span className="typing-dot h-1.5 w-1.5 rounded-full bg-rose-300" />
-                <span className="typing-dot h-1.5 w-1.5 rounded-full bg-rose-300" />
+                  );
+                })}
               </div>
-            </div>
-          ) : null}
-          <div ref={messagesEndRef} />
+            )}
+
+            {isPartnerTyping ? (
+              <div className="typing-enter mt-3 flex justify-start px-1">
+                <div className="inline-flex items-center gap-1 rounded-full border border-rose-900/40 bg-[#2a0910] px-3 py-2">
+                  <span className="typing-dot h-1.5 w-1.5 rounded-full bg-rose-300" />
+                  <span className="typing-dot h-1.5 w-1.5 rounded-full bg-rose-300" />
+                  <span className="typing-dot h-1.5 w-1.5 rounded-full bg-rose-300" />
+                </div>
+              </div>
+            ) : null}
+            <div ref={messagesEndRef} />
           </section>
 
           {!isNearBottom && (unreadMessageCount > 0 || isPartnerTyping) ? (

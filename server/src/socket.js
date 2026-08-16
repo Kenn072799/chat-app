@@ -168,7 +168,7 @@ function initializeSocket(server) {
 
         if (savedMessage.reply_to_message_id) {
           const replyMessage = await pool.query(
-            `SELECT m.content, u.username AS sender_username
+            `SELECT m.content, m.sender_id, u.username AS sender_username
                FROM messages m
                JOIN users u ON m.sender_id = u.id
               WHERE m.id = $1`,
@@ -179,6 +179,7 @@ function initializeSocket(server) {
             savedMessage = {
               ...savedMessage,
               reply_to_content: replyMessage.rows[0].content,
+              reply_to_sender_id: replyMessage.rows[0].sender_id,
               reply_to_sender_username: replyMessage.rows[0].sender_username,
             };
           }

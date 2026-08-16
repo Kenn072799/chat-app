@@ -45,6 +45,7 @@ exports.getMessages = async (req, res) => {
       `SELECT m.id, m.sender_id, m.receiver_id, m.content, m.created_at,
               m.reply_to_message_id, m.reactions,
               u.username AS sender_username,
+              reply_message.sender_id AS reply_to_sender_id,
               reply_message.content AS reply_to_content,
               reply_sender.username AS reply_to_sender_username
        FROM messages m
