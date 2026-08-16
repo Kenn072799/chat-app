@@ -1,8 +1,0 @@
-
-> server@1.0.0 dev
-> node src/server.js
-
-◇ injected env (3) from .env // tip: ⌘ enable debugging { debug: true }
-◇ injected env (0) from .env // tip: ⌘ custom filepath { path: '/custom/path/.env' }
-Server running on port 5000
-⚡ Connected to Neon Serverless PostgreSQL

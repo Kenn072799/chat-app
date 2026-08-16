@@ -1,7 +1,0 @@
-npm error Lifecycle script `dev` failed with error:
-npm error code 4294967295
-npm error path C:\Users\User\Desktop\project\chat-me-app\client
-npm error workspace client
-npm error location C:\Users\User\Desktop\project\chat-me-app\client
-npm error command failed
-npm error command C:\WINDOWS\system32\cmd.exe /d /s /c vite
