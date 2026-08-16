@@ -133,6 +133,7 @@ export default function Chat() {
   const [socketConnected, setSocketConnected] = useState(false);
   const [isNearBottom, setIsNearBottom] = useState(true);
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
+  const [titleUnreadCount, setTitleUnreadCount] = useState(0);
 
   const socketRef = useRef(null);
   const partnerRef = useRef(null);
@@ -146,6 +147,7 @@ export default function Chat() {
   const shouldAutoScrollRef = useRef(true);
   const loadingOlderMessagesRef = useRef(false);
   const pendingScrollAdjustmentRef = useRef(null);
+  const originalDocumentTitleRef = useRef(document.title);
 
   const partnerIsOnline = onlineUsers.some(
     (onlineId) => Number(onlineId) === Number(partner?.id),
@@ -158,6 +160,33 @@ export default function Chat() {
   useEffect(() => {
     partnerRef.current = partner;
   }, [partner]);
+
+  useEffect(() => {
+    const originalTitle = originalDocumentTitleRef.current;
+    const displayCount = titleUnreadCount > 99 ? "99+" : titleUnreadCount;
+
+    document.title = titleUnreadCount
+      ? `(${displayCount}) New ${titleUnreadCount === 1 ? "message" : "messages"} • ${originalTitle}`
+      : originalTitle;
+
+    return () => {
+      document.title = originalTitle;
+    };
+  }, [titleUnreadCount]);
+
+  useEffect(() => {
+    const clearTitleNotification = () => {
+      if (!document.hidden) setTitleUnreadCount(0);
+    };
+
+    document.addEventListener("visibilitychange", clearTitleNotification);
+    window.addEventListener("focus", clearTitleNotification);
+
+    return () => {
+      document.removeEventListener("visibilitychange", clearTitleNotification);
+      window.removeEventListener("focus", clearTitleNotification);
+    };
+  }, []);
 
   useEffect(() => {
     if (!composerRef.current) return;
@@ -221,6 +250,10 @@ export default function Chat() {
 
       if (isIncoming && !isNearBottomRef.current) {
         setUnreadMessageCount((count) => count + 1);
+      }
+
+      if (isIncoming && (document.hidden || !document.hasFocus())) {
+        setTitleUnreadCount((count) => count + 1);
       }
 
       setMessages((currentMessages) =>
