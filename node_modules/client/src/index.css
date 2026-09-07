@@ -272,10 +272,14 @@ textarea:focus-visible {
     transition-duration: 0.01ms !important;
   }
 }
-.message-group { position: relative; min-width: 0; }
+.message-group { position: relative; min-width: 0; touch-action: pan-y pinch-zoom; }
 .message-group[data-selected] { z-index: 5; }
-.swipe-surface { position: relative; touch-action: pan-y; transform: translateX(var(--swipe, 0px)); transition: transform 220ms cubic-bezier(.22,1,.36,1); }
-.swipe-surface.is-dragging { transition: none; user-select: none; }
+.swipe-surface { position: relative; touch-action: pan-y pinch-zoom; transform: translate3d(var(--swipe, 0px), 0, 0); transition: transform 260ms cubic-bezier(.2,.8,.2,1); }
+.swipe-surface.is-dragging { transition: none; user-select: none; will-change: transform; }
+.swiping-left .swipe-reply-hint { right: auto; left: calc(100% + 12px); }
+@media (pointer: coarse) {
+  .swipe-surface { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+}
 .swipe-reply-hint { position: absolute; right: calc(100% + 12px); top: 16px; opacity: 0; color: #fda4af; transition: opacity 150ms, scale 150ms; }
 .is-dragging .swipe-reply-hint { opacity: .5; }
 .reply-ready .swipe-reply-hint { opacity: 1; scale: 1.2; }
