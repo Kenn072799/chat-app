@@ -1003,7 +1003,7 @@ export default function Chat() {
                                   ) : null}
                                   Reply to{" "}
                                   {Number(message.reply_to_sender_id) ===
-                                  Number(user.id)
+                                    Number(user.id)
                                     ? "you"
                                     : message.reply_to_sender_username || "message"}
                                 </span>
@@ -1031,39 +1031,39 @@ export default function Chat() {
 
                             <div className="message-actions-slot">
                               <div className="message-actions-inner">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setActiveReactionMenuId((currentId) =>
-                                  Number(currentId) === Number(message.id)
-                                    ? null
-                                    : message.id,
-                                )
-                              }
-                              aria-label={
-                                isReactionMenuOpen
-                                  ? "Close reaction picker"
-                                  : "React to message"
-                              }
-                              className="message-action inline-flex h-8 w-8 items-center justify-center rounded-full border border-rose-900/30 bg-[#22070c]/80 text-rose-100/60 transition hover:border-rose-600/50 hover:text-rose-50 active:scale-90"
-                            >
-                              {isReactionMenuOpen ? (
-                                <X className="h-3.5 w-3.5" />
-                              ) : (
-                                <Smile className="h-3.5 w-3.5" />
-                              )}
-                            </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setActiveReactionMenuId((currentId) =>
+                                      Number(currentId) === Number(message.id)
+                                        ? null
+                                        : message.id,
+                                    )
+                                  }
+                                  aria-label={
+                                    isReactionMenuOpen
+                                      ? "Close reaction picker"
+                                      : "React to message"
+                                  }
+                                  className="message-action inline-flex h-8 w-8 items-center justify-center rounded-full border border-rose-900/30 bg-[#22070c]/80 text-rose-100/60 transition hover:border-rose-600/50 hover:text-rose-50 active:scale-90"
+                                >
+                                  {isReactionMenuOpen ? (
+                                    <X className="h-3.5 w-3.5" />
+                                  ) : (
+                                    <Smile className="h-3.5 w-3.5" />
+                                  )}
+                                </button>
 
-                            <button
-                              type="button"
-                              onClick={() => {
-                                startReply(message);
-                              }}
-                              aria-label="Reply to message"
-                              className="message-action inline-flex h-8 w-8 items-center justify-center rounded-full border border-rose-900/30 bg-[#22070c]/80 text-rose-100/60 transition hover:border-rose-600/50 hover:text-rose-50 active:scale-90"
-                            >
-                              <Reply className="h-3.5 w-3.5" />
-                            </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    startReply(message);
+                                  }}
+                                  aria-label="Reply to message"
+                                  className="message-action inline-flex h-8 w-8 items-center justify-center rounded-full border border-rose-900/30 bg-[#22070c]/80 text-rose-100/60 transition hover:border-rose-600/50 hover:text-rose-50 active:scale-90"
+                                >
+                                  <Reply className="h-3.5 w-3.5" />
+                                </button>
 
                               </div>
                             </div>
@@ -1151,7 +1151,11 @@ export default function Chat() {
               <div className="composer-reply-enter mb-2 flex items-start justify-between gap-2 rounded-[1.2rem] border border-rose-900/40 bg-[#1a0509]/80 p-3 text-sm text-rose-100/80">
                 <div className="min-w-0">
                   <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-rose-200/60">
-                    Replying to {replyTarget.sender_username || "message"}
+                    Replying to {
+                      Number(replyTarget.sender_id) === Number(user.id)
+                        ? "yourself"
+                        : replyTarget.sender_username
+                    }
                   </div>
                   <div className="truncate">{replyTarget.content}</div>
                 </div>
