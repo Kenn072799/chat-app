@@ -317,3 +317,12 @@ textarea:focus-visible {
 .emoji-option { display: grid; place-items: center; min-height: 44px; border-radius: 12px; font-size: 24px; transition: background 120ms, transform 120ms; }
 .emoji-option:hover, .emoji-option:focus-visible { background: #531020; }
 .emoji-option:active { transform: scale(.9); }
+
+.chat-bubble {
+  border-radius: 1.55rem;
+  transition: border-radius 180ms ease;
+}
+.chat-bubble[data-side="incoming"][data-joins-previous] { border-top-left-radius: 0.4rem; }
+.chat-bubble[data-side="incoming"][data-joins-next] { border-bottom-left-radius: 0.4rem; }
+.chat-bubble[data-side="outgoing"][data-joins-previous] { border-top-right-radius: 0.4rem; }
+.chat-bubble[data-side="outgoing"][data-joins-next] { border-bottom-right-radius: 0.4rem; }

@@ -937,6 +937,12 @@ export default function Chat() {
                   const isGrouped = !showDay && previousMessage &&
                     Number(previousMessage.sender_id) === Number(message.sender_id) &&
                     timeGap >= 0 && timeGap < 5 * 60 * 1000;
+                  const nextMessage = messages[index + 1];
+                  const nextTimeGap = parseMessageDate(nextMessage?.created_at)?.getTime() -
+                    parseMessageDate(message.created_at)?.getTime();
+                  const joinsNext = nextMessage && !isDifferentDay(nextMessage, message) &&
+                    Number(nextMessage.sender_id) === Number(message.sender_id) &&
+                    nextTimeGap >= 0 && nextTimeGap < 5 * 60 * 1000;
                   const isSelected = selectedMessageId === message.id;
 
                   return (
@@ -970,9 +976,12 @@ export default function Chat() {
                             }`}
                         >
                           <div
-                            className={`rounded-[1.55rem] px-4 py-3 text-sm leading-relaxed shadow-lg sm:text-[15px] ${isMe
-                              ? "rounded-br-md border border-rose-500/30 bg-gradient-to-br from-rose-600 to-pink-700 text-white shadow-rose-950/20"
-                              : "rounded-bl-md border border-rose-900/50 bg-[#2a0910] text-rose-50 shadow-black/20"
+                            data-joins-previous={isGrouped || undefined}
+                            data-joins-next={joinsNext || undefined}
+                            data-side={isMe ? "outgoing" : "incoming"}
+                            className={`chat-bubble px-4 py-3 text-sm leading-relaxed shadow-lg sm:text-[15px] ${isMe
+                              ? "border border-rose-500/30 bg-gradient-to-br from-rose-600 to-pink-700 text-white shadow-rose-950/20"
+                              : "border border-rose-900/50 bg-[#2a0910] text-rose-50 shadow-black/20"
                               }`}
                           >
                             {message.reply_to_message_id ? (
