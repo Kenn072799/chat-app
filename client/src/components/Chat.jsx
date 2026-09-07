@@ -1038,20 +1038,30 @@ export default function Chat() {
                             <MessageContent content={message.content} />
                           </div>
 
+                          {reactionSummary.length > 0 ? (
+                            <div className={`bubble-reactions flex flex-wrap gap-1 ${isMe ? "justify-end" : "justify-start"}`} aria-label="Message reactions">
+                              {reactionSummary.map(({ emoji, count }) => (
+                                <button
+                                  key={`${message.id}-${emoji}`}
+                                  type="button"
+                                  onClick={() => handleReaction(message.id, emoji)}
+                                  disabled={!socketConnected}
+                                  aria-label={`${emoji}: ${count} ${count === 1 ? "reaction" : "reactions"}`}
+                                  aria-pressed={getReactions(message)[user.id] === emoji}
+                                  className="bubble-reaction reaction-pop"
+                                >
+                                  <span>{emoji}</span>
+                                  {count > 1 ? <span className="text-[10px] font-bold">{count}</span> : null}
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
+
                           <div
-                            data-expanded={isSelected || reactionSummary.length > 0 || undefined}
+                            data-expanded={isSelected || undefined}
                             className={`message-meta flex flex-wrap items-center px-1 ${isMe ? "justify-end" : "justify-start"
                               }`}
                           >
-                            {reactionSummary.map(({ emoji, count }) => (
-                              <span
-                                key={`${message.id}-${emoji}`}
-                                className="reaction-pop rounded-full border border-rose-900/40 bg-[#22070c] px-2 py-1 text-[11px] font-semibold text-rose-50"
-                              >
-                                {emoji} {count}
-                              </span>
-                            ))}
-
                             <div className="message-actions-slot">
                               <div className="message-actions-inner">
                                 <button

@@ -290,7 +290,6 @@ textarea:focus-visible {
 @media (hover: hover) and (pointer: fine) {
   .message-group:hover .message-meta { max-height: 160px; margin-top: 6px; }
 }
-.message-meta > .reaction-pop { margin-right: 6px; }
 .message-meta > .message-receipt { margin-left: 6px; }
 .message-actions-slot { width: 0; flex: 0 0 auto; overflow: hidden; opacity: 0; transition: width 180ms ease, opacity 150ms ease; }
 .message-actions-inner { display: flex; align-items: center; gap: 6px; width: 76px; padding-right: 6px; }
@@ -326,3 +325,29 @@ textarea:focus-visible {
 .chat-bubble[data-side="incoming"][data-joins-next] { border-bottom-left-radius: 0.4rem; }
 .chat-bubble[data-side="outgoing"][data-joins-previous] { border-top-right-radius: 0.4rem; }
 .chat-bubble[data-side="outgoing"][data-joins-next] { border-bottom-right-radius: 0.4rem; }
+
+.bubble-reactions {
+  position: relative;
+  z-index: 1;
+  margin-top: -10px;
+  padding: 0 8px 2px;
+}
+.bubble-reaction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 32px;
+  min-height: 28px;
+  padding: 2px 7px;
+  border: 2px solid #130507;
+  border-radius: 999px;
+  background: #350c16;
+  color: #fff1f2;
+  font-size: 16px;
+  line-height: 20px;
+  box-shadow: 0 2px 5px #0003;
+  transition: background 150ms ease;
+}
+.bubble-reaction:hover { background: #531020; }
+.bubble-reaction[aria-pressed="true"] { background: #67132a; }
