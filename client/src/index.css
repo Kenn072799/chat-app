@@ -283,7 +283,13 @@ textarea:focus-visible {
 .swipe-reply-hint { position: absolute; right: calc(100% + 12px); top: 16px; opacity: 0; color: #fda4af; transition: opacity 150ms, scale 150ms; }
 .is-dragging .swipe-reply-hint { opacity: .5; }
 .reply-ready .swipe-reply-hint { opacity: 1; scale: 1.2; }
-.message-meta { min-height: 32px; row-gap: 6px; }
+.message-meta { max-height: 0; overflow: hidden; margin-top: 0; row-gap: 6px; transition: max-height 180ms ease, margin-top 180ms ease; }
+.message-meta[data-expanded],
+.message-group[data-selected] .message-meta,
+.message-group:focus-within .message-meta { max-height: 160px; margin-top: 6px; }
+@media (hover: hover) and (pointer: fine) {
+  .message-group:hover .message-meta { max-height: 160px; margin-top: 6px; }
+}
 .message-meta > .reaction-pop { margin-right: 6px; }
 .message-meta > .message-receipt { margin-left: 6px; }
 .message-actions-slot { width: 0; flex: 0 0 auto; overflow: hidden; opacity: 0; transition: width 180ms ease, opacity 150ms ease; }
@@ -298,7 +304,6 @@ textarea:focus-visible {
   .message-group:hover .message-action { pointer-events: auto; }
 }
 @media (pointer: coarse) {
-  .message-meta { min-height: 44px; }
   .message-action { min-width: 44px; min-height: 44px; }
   .message-actions-inner { width: 100px; }
   .message-group[data-selected] .message-actions-slot,

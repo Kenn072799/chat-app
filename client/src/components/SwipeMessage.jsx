@@ -42,7 +42,7 @@ export default function SwipeMessage({ children, onReply, onSelect, selected, ..
       data-selected={selected || undefined}
       onPointerDown={(event) => {
         suppressClick.current = false;
-        if (event.pointerType === "mouse" || !event.isPrimary || event.target.closest("button")) return;
+        if (event.pointerType === "mouse" || !event.isPrimary || event.target.closest("button, a")) return;
         gesture.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, distance: 0, locked: false };
         // Capture on the stationary wrapper so moving bubbles never lose the finger.
         event.currentTarget.setPointerCapture(event.pointerId);
@@ -67,7 +67,7 @@ export default function SwipeMessage({ children, onReply, onSelect, selected, ..
         }
       }}
       onClick={(event) => {
-        if (!event.target.closest("button") && !window.getSelection()?.toString()) onSelect();
+        if (!event.target.closest("button, a") && !window.getSelection()?.toString()) onSelect();
       }}
     >
       <div ref={surface} className="swipe-surface">

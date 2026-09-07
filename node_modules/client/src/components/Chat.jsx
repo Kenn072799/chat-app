@@ -20,6 +20,7 @@ import { io } from "socket.io-client";
 import { useAuth } from "../context/AuthContext";
 import API from "../services/api";
 import SwipeMessage from "./SwipeMessage";
+import MessageContent from "./MessageContent";
 
 const REACTION_OPTIONS = ["👍", "❤️", "😂", "😮", "😢", "🥰"];
 const MAX_MESSAGE_LENGTH = 2000;
@@ -68,6 +69,7 @@ function formatMessageTime(date) {
   return messageDate.toLocaleTimeString([], {
     hour: "numeric",
     minute: "2-digit",
+    hour12: true,
   });
 }
 
@@ -162,9 +164,6 @@ export default function Chat() {
     (onlineId) => Number(onlineId) === Number(partner?.id),
   );
 
-  const lastOutgoingMessage = [...messages]
-    .reverse()
-    .find((message) => Number(message.sender_id) === Number(user.id));
 
   useEffect(() => {
     partnerRef.current = partner;
@@ -899,7 +898,7 @@ export default function Chat() {
                 </p>
               </div>
             ) : (
-              <div className="space-y-3 sm:space-y-4">
+              <div>
                 {hasOlderMessages || olderMessagesError ? (
                   <div className="flex flex-col items-center gap-2 pb-2">
                     {hasOlderMessages ? (
@@ -932,12 +931,16 @@ export default function Chat() {
                   const isReactionMenuOpen =
                     Number(activeReactionMenuId) === Number(message.id);
                   const showDay = isDifferentDay(message, messages[index - 1]);
-                  const isLastOutgoing =
-                    isMe &&
-                    Number(lastOutgoingMessage?.id) === Number(message.id);
+                  const previousMessage = messages[index - 1];
+                  const timeGap = parseMessageDate(message.created_at)?.getTime() -
+                    parseMessageDate(previousMessage?.created_at)?.getTime();
+                  const isGrouped = !showDay && previousMessage &&
+                    Number(previousMessage.sender_id) === Number(message.sender_id) &&
+                    timeGap >= 0 && timeGap < 5 * 60 * 1000;
+                  const isSelected = selectedMessageId === message.id;
 
                   return (
-                    <div key={message.id}>
+                    <div key={message.id} className={index === 0 || showDay ? "" : isGrouped ? "pt-1" : "pt-4"}>
                       {showDay ? (
                         <div className="day-divider my-5 flex items-center gap-3">
                           <span className="h-px flex-1 bg-rose-900/30" />
@@ -1000,13 +1003,12 @@ export default function Chat() {
                                 </span>
                               </button>
                             ) : null}
-                            <div className="whitespace-pre-wrap break-words">
-                              {message.content}
-                            </div>
+                            <MessageContent content={message.content} />
                           </div>
 
                           <div
-                            className={`message-meta mt-1.5 flex flex-wrap items-center px-1 ${isMe ? "justify-end" : "justify-start"
+                            data-expanded={isSelected || reactionSummary.length > 0 || undefined}
+                            className={`message-meta flex flex-wrap items-center px-1 ${isMe ? "justify-end" : "justify-start"
                               }`}
                           >
                             {reactionSummary.map(({ emoji, count }) => (
@@ -1057,11 +1059,13 @@ export default function Chat() {
                               </div>
                             </div>
 
-                            <span className="px-1 text-[10px] text-rose-100/45">
-                              {formatMessageTime(message.created_at)}
-                            </span>
+                            {isSelected ? (
+                              <span className="px-1 text-[10px] text-rose-100/45">
+                                {formatMessageTime(message.created_at)}
+                              </span>
+                            ) : null}
 
-                            {isMe && (isLastOutgoing || selectedMessageId === message.id) ? (
+                            {isMe && isSelected ? (
                               <span className="message-receipt inline-flex items-center gap-1 text-[10px] text-rose-100/50">
                                 <CheckCheck className="h-3.5 w-3.5" />
                                 {seenMessageId >= Number(message.id)
