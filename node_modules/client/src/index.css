@@ -283,14 +283,26 @@ textarea:focus-visible {
 .swipe-reply-hint { position: absolute; right: calc(100% + 12px); top: 16px; opacity: 0; color: #fda4af; transition: opacity 150ms, scale 150ms; }
 .is-dragging .swipe-reply-hint { opacity: .5; }
 .reply-ready .swipe-reply-hint { opacity: 1; scale: 1.2; }
-.message-action { opacity: 0; pointer-events: none; transition: opacity 150ms, transform 150ms; }
+.message-meta { min-height: 32px; row-gap: 6px; }
+.message-meta > .reaction-pop { margin-right: 6px; }
+.message-meta > .message-receipt { margin-left: 6px; }
+.message-actions-slot { width: 0; flex: 0 0 auto; overflow: hidden; opacity: 0; transition: width 180ms ease, opacity 150ms ease; }
+.message-actions-inner { display: flex; align-items: center; gap: 6px; width: 76px; padding-right: 6px; }
+.message-action { flex-shrink: 0; pointer-events: none; }
+.message-group[data-selected] .message-actions-slot,
+.message-group:focus-within .message-actions-slot { width: 76px; opacity: 1; }
 .message-group[data-selected] .message-action,
-.message-group:focus-within .message-action { opacity: 1; pointer-events: auto; }
+.message-group:focus-within .message-action { pointer-events: auto; }
 @media (hover: hover) and (pointer: fine) {
-  .message-group:hover .message-action { opacity: 1; pointer-events: auto; }
+  .message-group:hover .message-actions-slot { width: 76px; opacity: 1; }
+  .message-group:hover .message-action { pointer-events: auto; }
 }
 @media (pointer: coarse) {
+  .message-meta { min-height: 44px; }
   .message-action { min-width: 44px; min-height: 44px; }
+  .message-actions-inner { width: 100px; }
+  .message-group[data-selected] .message-actions-slot,
+  .message-group:focus-within .message-actions-slot { width: 100px; }
 }
 .reaction-tray { position: absolute; bottom: 100%; left: 0; z-index: 20; padding: 6px; border: 1px solid #713040; border-radius: 999px; background: #22070c; box-shadow: 0 8px 28px #0006; }
 .message-group:has(.justify-end) .reaction-tray { left: auto; right: 0; }

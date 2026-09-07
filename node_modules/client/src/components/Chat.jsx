@@ -1006,7 +1006,7 @@ export default function Chat() {
                           </div>
 
                           <div
-                            className={`mt-1.5 flex flex-wrap items-center gap-1.5 px-1 ${isMe ? "justify-end" : "justify-start"
+                            className={`message-meta mt-1.5 flex flex-wrap items-center px-1 ${isMe ? "justify-end" : "justify-start"
                               }`}
                           >
                             {reactionSummary.map(({ emoji, count }) => (
@@ -1018,6 +1018,8 @@ export default function Chat() {
                               </span>
                             ))}
 
+                            <div className="message-actions-slot">
+                              <div className="message-actions-inner">
                             <button
                               type="button"
                               onClick={() =>
@@ -1052,12 +1054,15 @@ export default function Chat() {
                               <Reply className="h-3.5 w-3.5" />
                             </button>
 
+                              </div>
+                            </div>
+
                             <span className="px-1 text-[10px] text-rose-100/45">
                               {formatMessageTime(message.created_at)}
                             </span>
 
                             {isMe && (isLastOutgoing || selectedMessageId === message.id) ? (
-                              <span className="inline-flex items-center gap-1 text-[10px] text-rose-100/50">
+                              <span className="message-receipt inline-flex items-center gap-1 text-[10px] text-rose-100/50">
                                 <CheckCheck className="h-3.5 w-3.5" />
                                 {seenMessageId >= Number(message.id)
                                   ? "Seen"
