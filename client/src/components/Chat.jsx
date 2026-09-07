@@ -19,6 +19,7 @@ import { io } from "socket.io-client";
 
 import { useAuth } from "../context/AuthContext";
 import API from "../services/api";
+import SwipeMessage from "./SwipeMessage";
 
 const REACTION_OPTIONS = ["👍", "❤️", "😂", "😮", "😢", "🥰"];
 const MAX_MESSAGE_LENGTH = 2000;
@@ -127,6 +128,8 @@ export default function Chat() {
   const [newMessage, setNewMessage] = useState("");
   const [replyTarget, setReplyTarget] = useState(null);
   const [activeReactionMenuId, setActiveReactionMenuId] = useState(null);
+  const [selectedMessageId, setSelectedMessageId] = useState(null);
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [isPartnerTyping, setIsPartnerTyping] = useState(false);
   const [seenMessageId, setSeenMessageId] = useState(0);
@@ -270,12 +273,7 @@ export default function Chat() {
           : [...currentMessages, incomingMessage],
       );
 
-      if (Number(incomingMessage.sender_id) !== Number(user.id)) {
-        socket.emit("mark_seen", {
-          contactId: incomingMessage.sender_id,
-          messageId: incomingMessage.id,
-        });
-      }
+
     });
 
     socket.on("message_reaction_updated", ({ messageId, reactions }) => {
@@ -306,7 +304,7 @@ export default function Chat() {
 
     socket.on("messages_seen", ({ fromUserId, messageId }) => {
       if (Number(fromUserId) === Number(partnerRef.current?.id)) {
-        setSeenMessageId(Number(messageId));
+        setSeenMessageId((current) => Math.max(current, Number(messageId)));
       }
     });
 
@@ -380,18 +378,7 @@ export default function Chat() {
         setOlderMessagesCursor(
           Array.isArray(response.data) ? null : response.data.nextCursor,
         );
-        const lastIncomingMessage = [...historyMessages]
-          .reverse()
-          .find(
-            (message) => Number(message.sender_id) === Number(partner.id),
-          );
 
-        if (lastIncomingMessage && socketRef.current) {
-          socketRef.current.emit("mark_seen", {
-            contactId: partner.id,
-            messageId: lastIncomingMessage.id,
-          });
-        }
       } catch (error) {
         if (cancelled) return;
         console.error("Failed to fetch message history", error);
@@ -462,6 +449,71 @@ export default function Chat() {
       if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    const close = (event) => {
+      if (event.type === "keydown" && event.key !== "Escape") return;
+      if (event.type === "pointerdown" && event.target.closest("[data-message-id], [data-emoji-picker]")) return;
+      setActiveReactionMenuId(null);
+      setEmojiPickerOpen(false);
+      setSelectedMessageId(null);
+    };
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("keydown", close);
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      document.removeEventListener("keydown", close);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!partner || !socketConnected || messagesLoading) return;
+    const visible = new Set();
+    let lastMarked = 0;
+    const markVisible = () => {
+      if (document.hidden || !document.hasFocus() || !visible.size) return;
+      const messageId = Math.max(...visible);
+      if (messageId <= lastMarked) return;
+      lastMarked = messageId;
+      socketRef.current?.emit("mark_seen", { contactId: partner.id, messageId });
+    };
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        const id = Number(entry.target.dataset.messageId);
+        if (entry.isIntersecting) visible.add(id);
+        else visible.delete(id);
+      });
+      markVisible();
+    }, { root: messageListRef.current, threshold: 0.1 });
+    messageListRef.current?.querySelectorAll('[data-incoming="true"]').forEach((element) => observer.observe(element));
+    document.addEventListener("visibilitychange", markVisible);
+    window.addEventListener("focus", markVisible);
+    return () => {
+      observer.disconnect();
+      document.removeEventListener("visibilitychange", markVisible);
+      window.removeEventListener("focus", markVisible);
+    };
+  }, [messages, messagesLoading, partner, socketConnected]);
+
+  const startReply = (message) => {
+    setReplyTarget(message);
+    setActiveReactionMenuId(null);
+    setEmojiPickerOpen(false);
+    composerRef.current?.focus();
+  };
+
+  const insertEmoji = (emoji) => {
+    const input = composerRef.current;
+    const start = input?.selectionStart ?? newMessage.length;
+    const end = input?.selectionEnd ?? start;
+    const value = newMessage.slice(0, start) + emoji + newMessage.slice(end);
+    if (value.length > MAX_MESSAGE_LENGTH) return;
+    handleMessageChange({ target: { value } });
+    requestAnimationFrame(() => {
+      input?.focus();
+      input?.setSelectionRange(start + emoji.length, start + emoji.length);
+    });
+  };
 
   const handleMessageChange = (event) => {
     const value = event.target.value;
@@ -903,9 +955,13 @@ export default function Chat() {
                           animationDelay: `${Math.min(index * 18, 140)}ms`,
                         }}
                       >
-                        <div
+                        <SwipeMessage
                           data-message-id={message.id}
-                          className={`max-w-[88%] scroll-my-24 rounded-[1.6rem] transition duration-500 sm:max-w-[72%] ${Number(highlightedMessageId) === Number(message.id)
+                          data-incoming={!isMe}
+                          selected={selectedMessageId === message.id || isReactionMenuOpen}
+                          onReply={() => startReply(message)}
+                          onSelect={() => setSelectedMessageId((current) => current === message.id ? null : message.id)}
+                          className={`message-group max-w-[88%] scroll-my-24 rounded-[1.6rem] transition duration-500 sm:max-w-[72%] ${Number(highlightedMessageId) === Number(message.id)
                             ? "bg-rose-300/10 ring-2 ring-rose-300/60 ring-offset-4 ring-offset-[#130507]"
                             : ""
                             }`}
@@ -988,9 +1044,7 @@ export default function Chat() {
                             <button
                               type="button"
                               onClick={() => {
-                                setReplyTarget(message);
-                                setActiveReactionMenuId(null);
-                                composerRef.current?.focus();
+                                startReply(message);
                               }}
                               aria-label="Reply to message"
                               className="message-action inline-flex h-8 w-8 items-center justify-center rounded-full border border-rose-900/30 bg-[#22070c]/80 text-rose-100/60 transition hover:border-rose-600/50 hover:text-rose-50 active:scale-90"
@@ -1002,7 +1056,7 @@ export default function Chat() {
                               {formatMessageTime(message.created_at)}
                             </span>
 
-                            {isLastOutgoing ? (
+                            {isMe && (isLastOutgoing || selectedMessageId === message.id) ? (
                               <span className="inline-flex items-center gap-1 text-[10px] text-rose-100/50">
                                 <CheckCheck className="h-3.5 w-3.5" />
                                 {seenMessageId >= Number(message.id)
@@ -1014,13 +1068,17 @@ export default function Chat() {
 
                           {isReactionMenuOpen ? (
                             <div
-                              className={`reaction-picker-enter mt-2 flex gap-1.5 px-1 ${isMe ? "justify-end" : "justify-start"
+                              role="group" aria-label="Message reactions"
+                              className={`reaction-picker-enter reaction-tray flex gap-1 px-1 ${isMe ? "justify-end" : "justify-start"
                                 }`}
                             >
                               {REACTION_OPTIONS.map((emoji) => (
                                 <button
                                   key={emoji}
                                   type="button"
+                                  aria-label={`React with ${emoji}`}
+                                  aria-pressed={getReactions(message)[user.id] === emoji}
+                                  disabled={!socketConnected}
                                   onClick={() => handleReaction(message.id, emoji)}
                                   className="flex h-9 w-9 items-center justify-center rounded-full border border-rose-900/40 bg-[#2a0910] text-base shadow-lg shadow-black/20 transition hover:-translate-y-0.5 hover:border-rose-500/50 active:scale-90"
                                 >
@@ -1029,7 +1087,7 @@ export default function Chat() {
                               ))}
                             </div>
                           ) : null}
-                        </div>
+                        </SwipeMessage>
                       </div>
                     </div>
                   );
@@ -1091,8 +1149,18 @@ export default function Chat() {
             ) : null}
 
             <div className="flex items-end gap-2 sm:gap-3">
-              <div className="hidden h-10 w-10 items-center justify-center rounded-2xl bg-[#2a0910] text-rose-200 sm:flex">
-                <Heart className="heart-beat h-4 w-4" />
+              <div data-emoji-picker className="relative shrink-0">
+                <button type="button" aria-label="Choose emoji" aria-expanded={emojiPickerOpen}
+                  onClick={() => { setEmojiPickerOpen((open) => !open); setActiveReactionMenuId(null); }}
+                  className="flex h-12 w-10 items-center justify-center rounded-full text-rose-200 transition hover:bg-rose-900/40">
+                  {emojiPickerOpen ? <X size={20} /> : <Smile size={22} />}
+                </button>
+                {emojiPickerOpen && <div role="group" aria-label="Emoji picker" className="composer-emoji-picker reaction-picker-enter">
+                  <div className="col-span-6 px-2 py-1 text-xs font-bold text-rose-200">Emoji</div>
+                  {[...REACTION_OPTIONS, ...[0x1f600, 0x1f60d, 0x1f618, 0x1f60a, 0x1f609, 0x1f60e, 0x1f914, 0x1f62d, 0x1f634, 0x1f973, 0x1f495, 0x1f496, 0x1f525, 0x2728, 0x1f389, 0x1f64c, 0x1f64f, 0x1f44b, 0x1f917, 0x1f605, 0x1f607, 0x1f4af, 0x1f339, 0x2615].map((code) => String.fromCodePoint(code))].map((emoji) => <button key={emoji} type="button" aria-label={`Insert ${emoji}`}
+                    onPointerDown={(event) => event.preventDefault()} onClick={() => insertEmoji(emoji)}
+                    className="emoji-option">{emoji}</button>)}
+                </div>}
               </div>
               <textarea
                 ref={composerRef}
@@ -1101,7 +1169,7 @@ export default function Chat() {
                 onChange={handleMessageChange}
                 maxLength={MAX_MESSAGE_LENGTH}
                 placeholder={`Message ${partner.username}...`}
-                className="min-h-12 max-h-32 flex-1 resize-none rounded-[1.2rem] border-0 bg-transparent px-3 py-3 text-base text-rose-50 outline-none ring-0 focus:border-0 focus:outline-none focus:ring-0 placeholder:text-rose-200/40 sm:px-4 sm:text-sm"
+                className="min-w-0 min-h-12 max-h-32 flex-1 resize-none rounded-[1.2rem] border-0 bg-transparent px-3 py-3 text-base text-rose-50 outline-none ring-0 focus:border-0 focus:outline-none focus:ring-0 placeholder:text-rose-200/40 sm:px-4 sm:text-sm"
                 onKeyDown={(event) => {
                   if (
                     event.key === "Enter" &&

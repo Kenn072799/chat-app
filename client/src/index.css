@@ -272,3 +272,27 @@ textarea:focus-visible {
     transition-duration: 0.01ms !important;
   }
 }
+.message-group { position: relative; min-width: 0; }
+.message-group[data-selected] { z-index: 5; }
+.swipe-surface { position: relative; touch-action: pan-y; transform: translateX(var(--swipe, 0px)); transition: transform 220ms cubic-bezier(.22,1,.36,1); }
+.swipe-surface.is-dragging { transition: none; user-select: none; }
+.swipe-reply-hint { position: absolute; right: calc(100% + 12px); top: 16px; opacity: 0; color: #fda4af; transition: opacity 150ms, scale 150ms; }
+.is-dragging .swipe-reply-hint { opacity: .5; }
+.reply-ready .swipe-reply-hint { opacity: 1; scale: 1.2; }
+.message-action { opacity: 0; pointer-events: none; transition: opacity 150ms, transform 150ms; }
+.message-group[data-selected] .message-action,
+.message-group:focus-within .message-action { opacity: 1; pointer-events: auto; }
+@media (hover: hover) and (pointer: fine) {
+  .message-group:hover .message-action { opacity: 1; pointer-events: auto; }
+}
+@media (pointer: coarse) {
+  .message-action { min-width: 44px; min-height: 44px; }
+}
+.reaction-tray { position: absolute; bottom: 100%; left: 0; z-index: 20; padding: 6px; border: 1px solid #713040; border-radius: 999px; background: #22070c; box-shadow: 0 8px 28px #0006; }
+.message-group:has(.justify-end) .reaction-tray { left: auto; right: 0; }
+.reaction-tray button { width: 40px; height: 44px; flex-shrink: 0; }
+.reaction-tray button[aria-pressed="true"] { background: #881337; border-color: #fda4af; }
+.composer-emoji-picker { position: absolute; bottom: calc(100% + 16px); left: 0; z-index: 30; display: grid; grid-template-columns: repeat(6, 1fr); width: min(280px, calc(100vw - 48px)); max-height: min(320px, 45dvh); overflow-y: auto; overscroll-behavior: contain; padding: 8px; border: 1px solid #713040; border-radius: 20px; background: #22070c; box-shadow: 0 12px 40px #0008; }
+.emoji-option { display: grid; place-items: center; min-height: 44px; border-radius: 12px; font-size: 24px; transition: background 120ms, transform 120ms; }
+.emoji-option:hover, .emoji-option:focus-visible { background: #531020; }
+.emoji-option:active { transform: scale(.9); }
