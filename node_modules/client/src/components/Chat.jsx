@@ -494,6 +494,29 @@ export default function Chat() {
     };
   }, [messages, messagesLoading, partner, socketConnected]);
 
+  useLayoutEffect(() => {
+    const messageId = activeReactionMenuId ?? selectedMessageId;
+    const list = messageListRef.current;
+    if (messageId == null || !list) return;
+    const bubble = list.querySelector(`[data-message-id="${Number(messageId)}"]`);
+    if (!bubble) return;
+
+    // Follow the expanding controls throughout their CSS transition, without
+    // moving the page or jumping all the way to the newest message.
+    const revealControls = () => {
+      const viewport = list.getBoundingClientRect();
+      const bounds = bubble.getBoundingClientRect();
+      const overflow = bounds.bottom - (viewport.bottom - 12);
+      if (overflow > 0 && bounds.top < viewport.bottom) {
+        list.scrollTop += overflow;
+      }
+    };
+    const observer = new ResizeObserver(revealControls);
+    observer.observe(bubble);
+    revealControls();
+    return () => observer.disconnect();
+  }, [selectedMessageId, activeReactionMenuId]);
+
   const startReply = (message) => {
     setReplyTarget(message);
     setActiveReactionMenuId(null);
