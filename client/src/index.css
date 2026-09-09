@@ -351,3 +351,26 @@ textarea:focus-visible {
 }
 .bubble-reaction:hover { background: #531020; }
 .bubble-reaction[aria-pressed="true"] { background: #67132a; }
+
+/* Keep receipts visible and desktop actions outside the message flow. */
+.message-meta[data-visible] { max-height: 160px; margin-top: 6px; }
+@media (hover: hover) and (pointer: fine) {
+  .message-group { max-width: min(72%, calc(100% - 88px)); }
+  .message-group .message-meta.message-meta { max-height: none; overflow: visible; margin-top: 0; transition: none; }
+  .message-group .message-meta[data-visible] { margin-top: 6px; }
+  .message-group .message-actions-slot {
+    position: absolute;
+    top: 6px;
+    left: 100%;
+    width: 84px;
+    padding-left: 8px;
+    overflow: visible;
+    transition: opacity 150ms ease;
+  }
+  .message-group[data-incoming="false"] .message-actions-slot {
+    left: auto;
+    right: 100%;
+    padding-left: 0;
+    padding-right: 8px;
+  }
+}

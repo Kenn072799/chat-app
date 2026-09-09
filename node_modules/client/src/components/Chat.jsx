@@ -160,6 +160,8 @@ export default function Chat() {
   const highlightTimeoutRef = useRef(null);
   const originalDocumentTitleRef = useRef(document.title);
 
+  const lastSeenMessage = messages.findLast((message) => Number(message.sender_id) === Number(user.id) && Number(message.id) <= seenMessageId);
+
   const partnerIsOnline = onlineUsers.some(
     (onlineId) => Number(onlineId) === Number(partner?.id),
   );
@@ -967,6 +969,9 @@ export default function Chat() {
                     Number(nextMessage.sender_id) === Number(message.sender_id) &&
                     nextTimeGap >= 0 && nextTimeGap < 5 * 60 * 1000;
                   const isSelected = selectedMessageId === message.id;
+                  const showSeen = isMe && message === lastSeenMessage;
+                  const showSent = isMe && !nextMessage && Number(message.id) > seenMessageId;
+                  const showTime = !joinsNext;
 
                   return (
                     <div key={message.id} className={index === 0 || showDay ? "" : isGrouped ? "pt-1" : "pt-4"}>
@@ -1059,6 +1064,7 @@ export default function Chat() {
 
                           <div
                             data-expanded={isSelected || undefined}
+                            data-visible={showTime || showSeen || showSent || undefined}
                             className={`message-meta flex flex-wrap items-center px-1 ${isMe ? "justify-end" : "justify-start"
                               }`}
                           >
@@ -1101,16 +1107,16 @@ export default function Chat() {
                               </div>
                             </div>
 
-                            {isSelected ? (
+                            {showTime ? (
                               <span className="px-1 text-[10px] text-rose-100/45">
                                 {formatMessageTime(message.created_at)}
                               </span>
                             ) : null}
 
-                            {isMe && isSelected ? (
+                            {showSeen || showSent ? (
                               <span className="message-receipt inline-flex items-center gap-1 text-[10px] text-rose-100/50">
                                 <CheckCheck className="h-3.5 w-3.5" />
-                                {seenMessageId >= Number(message.id)
+                                {showSeen
                                   ? "Seen"
                                   : "Sent"}
                               </span>
