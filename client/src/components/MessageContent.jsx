@@ -1,6 +1,7 @@
 import { memo, useMemo, useState } from "react";
 import { Play, ExternalLink } from "lucide-react";
 import { messageLinks } from "./messageLinks";
+import { parseSharedContent } from "./sharedContent";
 
 function VideoPreview({ href, videoId }) {
   const [failed, setFailed] = useState(false);
@@ -26,7 +27,9 @@ function VideoPreview({ href, videoId }) {
 
 export default memo(function MessageContent({ content }) {
   const parts = useMemo(() => messageLinks(content), [content]);
+  const attachment = parseSharedContent(content);
   const previews = [...new Map(parts.filter((part) => part.videoId).map((part) => [part.videoId, part])).values()].slice(0, 3);
+  if (attachment) return <p className="whitespace-pre-wrap break-words">{attachment.caption || attachment.name}</p>;
   return <>
     <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
       {parts.map((part, index) => part.href

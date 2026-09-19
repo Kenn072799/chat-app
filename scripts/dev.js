@@ -1,9 +1,7 @@
 const { spawn } = require('child_process');
 
-const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-
 function startWorkspace(workspaceName) {
-  const child = spawn(npmCommand, ['run', 'dev', '--workspace', workspaceName], {
+  const child = spawn(process.execPath, [process.env.npm_execpath, 'run', 'dev', '--workspace', workspaceName], {
     stdio: 'inherit',
     shell: false,
   });

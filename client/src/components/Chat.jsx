@@ -22,6 +22,11 @@ import API from "../services/api";
 import SwipeMessage from "./SwipeMessage";
 import MessageContent from "./MessageContent";
 
+import useReply from "../hooks/useReply";
+import ReplyPreview from "./ReplyPreview";
+import useMessageHighlight from "../hooks/useMessageHighlight";
+import { contentPreview } from "./sharedContent";
+
 const REACTION_OPTIONS = ["👍", "❤️", "😂", "😮", "😢", "🥰"];
 const MAX_MESSAGE_LENGTH = 2000;
 const MESSAGE_PAGE_SIZE = 50;
@@ -128,7 +133,8 @@ export default function Chat() {
   const [olderMessagesError, setOlderMessagesError] = useState("");
   const [historyReloadKey, setHistoryReloadKey] = useState(0);
   const [newMessage, setNewMessage] = useState("");
-  const [replyTarget, setReplyTarget] = useState(null);
+  const { replyTarget, setReplyTarget, cancelReply } = useReply();
+  const viewportRef = useRef(null);
   const [activeReactionMenuId, setActiveReactionMenuId] = useState(null);
   const [selectedMessageId, setSelectedMessageId] = useState(null);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
@@ -139,7 +145,6 @@ export default function Chat() {
   const [isNearBottom, setIsNearBottom] = useState(true);
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
   const [titleUnreadCount, setTitleUnreadCount] = useState(0);
-  const [highlightedMessageId, setHighlightedMessageId] = useState(null);
   const [replyNavigationMessageId, setReplyNavigationMessageId] =
     useState(null);
 
@@ -148,6 +153,7 @@ export default function Chat() {
   const typingTimeoutRef = useRef(null);
   const incomingTypingTimeoutRef = useRef(null);
   const messageListRef = useRef(null);
+  const highlightMessage = useMessageHighlight(messageListRef);
   const messagesEndRef = useRef(null);
   const composerRef = useRef(null);
   const knownMessageIdsRef = useRef(new Set());
@@ -157,7 +163,6 @@ export default function Chat() {
   const pendingScrollAdjustmentRef = useRef(null);
   const pendingReplyScrollRef = useRef(null);
   const replyNavigationRef = useRef(false);
-  const highlightTimeoutRef = useRef(null);
   const originalDocumentTitleRef = useRef(document.title);
 
   const lastSeenMessage = messages.findLast((message) => Number(message.sender_id) === Number(user.id) && Number(message.id) <= seenMessageId);
@@ -333,7 +338,6 @@ export default function Chat() {
       pendingReplyScrollRef.current = null;
       replyNavigationRef.current = false;
       setReplyNavigationMessageId(null);
-      setHighlightedMessageId(null);
       setUnreadMessageCount(0);
       return;
     }
@@ -352,7 +356,6 @@ export default function Chat() {
       pendingReplyScrollRef.current = null;
       replyNavigationRef.current = false;
       setReplyNavigationMessageId(null);
-      setHighlightedMessageId(null);
       setReplyTarget(null);
       setActiveReactionMenuId(null);
       setUnreadMessageCount(0);
@@ -414,21 +417,11 @@ export default function Chat() {
         `[data-message-id="${pendingReplyId}"]`,
       );
 
-      if (originalMessage) {
-        originalMessage.scrollIntoView({ behavior: "smooth", block: "center" });
-        setHighlightedMessageId(Number(pendingReplyId));
-        if (highlightTimeoutRef.current) {
-          clearTimeout(highlightTimeoutRef.current);
-        }
-        highlightTimeoutRef.current = setTimeout(
-          () => setHighlightedMessageId(null),
-          1800,
-        );
-      }
+      if (originalMessage) highlightMessage(originalMessage);
 
       pendingReplyScrollRef.current = null;
     }
-  }, [messages]);
+  }, [messages, highlightMessage]);
 
   useEffect(() => {
     if (messagesLoading || !shouldAutoScrollRef.current) return undefined;
@@ -447,17 +440,22 @@ export default function Chat() {
   useEffect(() => {
     return () => {
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
     };
   }, []);
 
   useEffect(() => {
     const close = (event) => {
       if (event.type === "keydown" && event.key !== "Escape") return;
-      if (event.type === "pointerdown" && event.target.closest("[data-message-id], [data-emoji-picker]")) return;
-      setActiveReactionMenuId(null);
-      setEmojiPickerOpen(false);
-      setSelectedMessageId(null);
+      const isEscape = event.type === "keydown";
+      if (isEscape || !event.target.closest(".reaction-tray, [data-reaction-toggle]")) {
+        setActiveReactionMenuId(null);
+      }
+      if (isEscape || !event.target.closest("[data-emoji-picker]")) {
+        setEmojiPickerOpen(false);
+      }
+      if (isEscape || !event.target.closest("[data-message-id]")) {
+        setSelectedMessageId(null);
+      }
     };
     document.addEventListener("pointerdown", close);
     document.addEventListener("keydown", close);
@@ -519,7 +517,25 @@ export default function Chat() {
     return () => observer.disconnect();
   }, [selectedMessageId, activeReactionMenuId]);
 
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    const resize = () => {
+      viewportRef.current?.style.setProperty("--chat-height", (viewport?.height || window.innerHeight) + "px");
+      viewportRef.current?.style.setProperty("--chat-top", (viewport?.offsetTop || 0) + "px");
+    };
+    resize();
+    viewport?.addEventListener("resize", resize);
+    viewport?.addEventListener("scroll", resize);
+    const list = messageListRef.current;
+    const observer = new ResizeObserver(() => {
+      if (list && isNearBottomRef.current && !replyNavigationRef.current) list.scrollTop = list.scrollHeight;
+    });
+    if (list) observer.observe(list);
+    return () => { observer.disconnect(); viewport?.removeEventListener("resize", resize); viewport?.removeEventListener("scroll", resize); };
+  }, [partnerLoading, partner]);
+
   const startReply = (message) => {
+    setSelectedMessageId(null);
     setReplyTarget(message);
     setActiveReactionMenuId(null);
     setEmojiPickerOpen(false);
@@ -594,15 +610,8 @@ export default function Chat() {
     );
     if (!originalMessage) return false;
 
-    originalMessage.scrollIntoView({ behavior: "smooth", block: "center" });
-    setHighlightedMessageId(normalizedMessageId);
-    if (highlightTimeoutRef.current) {
-      clearTimeout(highlightTimeoutRef.current);
-    }
-    highlightTimeoutRef.current = setTimeout(
-      () => setHighlightedMessageId(null),
-      1800,
-    );
+    shouldAutoScrollRef.current = false;
+    highlightMessage(originalMessage);
     return true;
   };
 
@@ -830,8 +839,9 @@ export default function Chat() {
     );
   }
 
+
   return (
-    <div className="relative h-[100dvh] overflow-hidden bg-[#130507] text-rose-50 antialiased">
+    <div ref={viewportRef} className="chat-viewport relative h-[100dvh] overflow-hidden bg-[#130507] text-rose-50 antialiased">
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="ambient-glow absolute -left-20 top-10 h-64 w-64 rounded-full bg-rose-700/10 blur-3xl" />
         <div className="ambient-glow ambient-glow-delayed absolute -right-20 bottom-20 h-72 w-72 rounded-full bg-pink-600/10 blur-3xl" />
@@ -851,7 +861,7 @@ export default function Chat() {
 
               <div className="min-w-0">
                 <h1 className="truncate text-sm font-extrabold text-rose-50 sm:text-base">
-                  {partner.username != null ? "Love ❤️" : null}
+                  {partner.username && "Love ❤️"}
                 </h1>
                 <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-rose-100/55">
                   {isPartnerTyping ? (
@@ -859,7 +869,7 @@ export default function Chat() {
                       {partner.username} typing...
                     </span>
                   ) : (
-                    <span>{partnerIsOnline ? "online" : "offline"}</span>
+                    <span>{partnerIsOnline ? "Active now" : "Offline"}</span>
                   )}
                   <span aria-hidden="true">•</span>
                   <span>{partner.username}</span>
@@ -889,8 +899,9 @@ export default function Chat() {
         <div className="relative min-h-0 flex-1">
           <section
             ref={messageListRef}
+            aria-label="Conversation messages"
             onScroll={handleMessageListScroll}
-            className="h-full overflow-y-auto overscroll-contain px-3 py-4 sm:px-6 sm:py-6"
+            className="h-full overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-4 sm:px-6 sm:py-6"
           >
             {messagesLoading ? (
               <div className="flex h-full min-h-56 items-center justify-center gap-2 text-sm text-rose-100/60">
@@ -997,21 +1008,14 @@ export default function Chat() {
                           data-incoming={!isMe}
                           selected={selectedMessageId === message.id || isReactionMenuOpen}
                           onReply={() => startReply(message)}
+                          onLongPress={() => {
+                            setSelectedMessageId(null);
+                            setEmojiPickerOpen(false);
+                            setActiveReactionMenuId(message.id);
+                          }}
                           onSelect={() => setSelectedMessageId((current) => current === message.id ? null : message.id)}
-                          className={`message-group max-w-[88%] scroll-my-24 rounded-[1.6rem] transition duration-500 sm:max-w-[72%] ${Number(highlightedMessageId) === Number(message.id)
-                            ? "bg-rose-300/10 ring-2 ring-rose-300/60 ring-offset-4 ring-offset-[#130507]"
-                            : ""
-                            }`}
+                          className="message-group max-w-[88%] rounded-[1.6rem] sm:max-w-[72%]"
                         >
-                          <div
-                            data-joins-previous={isGrouped || undefined}
-                            data-joins-next={joinsNext || undefined}
-                            data-side={isMe ? "outgoing" : "incoming"}
-                            className={`chat-bubble px-4 py-3 text-sm leading-relaxed shadow-lg sm:text-[15px] ${isMe
-                              ? "border border-rose-500/30 bg-gradient-to-br from-rose-600 to-pink-700 text-white shadow-rose-950/20"
-                              : "border border-rose-900/50 bg-[#2a0910] text-rose-50 shadow-black/20"
-                              }`}
-                          >
                             {message.reply_to_message_id ? (
                               <button
                                 type="button"
@@ -1022,12 +1026,12 @@ export default function Chat() {
                                 }
                                 disabled={replyNavigationMessageId !== null}
                                 aria-label="Go to original message"
-                                className="mb-2 block w-full rounded-[1rem] border border-white/10 bg-black/15 p-2 text-left text-xs text-rose-100/70 transition hover:border-white/20 hover:bg-black/25 disabled:cursor-wait"
+                                className="reply-reference block border-l-2 border-rose-300/35 bg-rose-200/[0.07] px-2.5 py-1 text-left text-xs leading-snug text-rose-100/70 transition hover:bg-rose-200/10 disabled:cursor-wait"
                               >
-                                <span className="mb-1 flex items-center gap-1.5 font-semibold text-rose-50">
+                                <span className="mb-0.5 block truncate text-xs font-semibold text-rose-50">
                                   {Number(replyNavigationMessageId) ===
                                     Number(message.reply_to_message_id) ? (
-                                    <LoaderCircle className="h-3 w-3 animate-spin" />
+                                    <LoaderCircle className="mr-1 inline-block h-3 w-3 animate-spin" />
                                   ) : null}
                                   Reply to{" "}
                                   {Number(message.reply_to_sender_id) ===
@@ -1035,11 +1039,20 @@ export default function Chat() {
                                     ? "you"
                                     : message.reply_to_sender_username || "message"}
                                 </span>
-                                <span className="block truncate">
-                                  {message.reply_to_content || "Shared a message"}
+                                <span className="line-clamp-2 whitespace-pre-wrap [overflow-wrap:anywhere]">
+                                  {contentPreview(message.reply_to_content)}
                                 </span>
                               </button>
                             ) : null}
+                          <div
+                            data-joins-previous={isGrouped || undefined}
+                            data-joins-next={joinsNext || undefined}
+                            data-side={isMe ? "outgoing" : "incoming"}
+                            className={`chat-bubble px-4 py-3 text-sm leading-relaxed shadow-lg sm:text-[15px] ${isMe
+                              ? "border border-rose-500/30 bg-gradient-to-br from-rose-600 to-pink-700 text-white shadow-rose-950/20"
+                              : "border border-rose-900/50 bg-[#2a0910] text-rose-50 shadow-black/20"
+                              }`}
+                          >
                             <MessageContent content={message.content} />
                           </div>
 
@@ -1079,6 +1092,7 @@ export default function Chat() {
                                         : message.id,
                                     )
                                   }
+                                  data-reaction-toggle
                                   aria-label={
                                     isReactionMenuOpen
                                       ? "Close reaction picker"
@@ -1089,7 +1103,7 @@ export default function Chat() {
                                   {isReactionMenuOpen ? (
                                     <X className="h-3.5 w-3.5" />
                                   ) : (
-                                    <Smile className="h-3.5 w-3.5" />
+                                    <Smile className="h-3 w-3" />
                                   )}
                                 </button>
 
@@ -1101,7 +1115,7 @@ export default function Chat() {
                                   aria-label="Reply to message"
                                   className="message-action inline-flex h-8 w-8 items-center justify-center rounded-full border border-rose-900/30 bg-[#22070c]/80 text-rose-100/60 transition hover:border-rose-600/50 hover:text-rose-50 active:scale-90"
                                 >
-                                  <Reply className="h-3.5 w-3.5" />
+                                  <Reply className="h-3 w-3" />
                                 </button>
 
                               </div>
@@ -1186,45 +1200,12 @@ export default function Chat() {
           className="relative border-t border-rose-900/60 bg-[#130507]/90 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl sm:p-4"
         >
           <div className="rounded-[1.7rem] border border-rose-900/50 bg-[#22070c]/90 p-2 shadow-inner shadow-black/15 transition focus-within:border-rose-500/50 focus-within:bg-[#2a0910]">
-            {replyTarget ? (
-              <div className="composer-reply-enter mb-2 flex items-start justify-between gap-2 rounded-[1.2rem] border border-rose-900/40 bg-[#1a0509]/80 p-3 text-sm text-rose-100/80">
-                <div className="min-w-0">
-                  <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-rose-200/60">
-                    Replying to {
-                      Number(replyTarget.sender_id) === Number(user.id)
-                        ? "yourself"
-                        : replyTarget.sender_username
-                    }
-                  </div>
-                  <div className="truncate">{replyTarget.content}</div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setReplyTarget(null)}
-                  aria-label="Cancel reply"
-                  className="rounded-full p-1 text-rose-100/60 transition hover:bg-[#2a0910] hover:text-rose-50 active:scale-90"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            ) : null}
+            <ReplyPreview target={replyTarget} userId={user.id} onCancel={cancelReply} />
 
-            <div className="flex items-end gap-2 sm:gap-3">
-              <div data-emoji-picker className="relative shrink-0">
-                <button type="button" aria-label="Choose emoji" aria-expanded={emojiPickerOpen}
-                  onClick={() => { setEmojiPickerOpen((open) => !open); setActiveReactionMenuId(null); }}
-                  className="flex h-12 w-10 items-center justify-center rounded-full text-rose-200 transition hover:bg-rose-900/40">
-                  {emojiPickerOpen ? <X size={20} /> : <Smile size={22} />}
-                </button>
-                {emojiPickerOpen && <div role="group" aria-label="Emoji picker" className="composer-emoji-picker reaction-picker-enter">
-                  <div className="col-span-6 px-2 py-1 text-xs font-bold text-rose-200">Emoji</div>
-                  {[...REACTION_OPTIONS, ...[0x1f600, 0x1f60d, 0x1f618, 0x1f60a, 0x1f609, 0x1f60e, 0x1f914, 0x1f62d, 0x1f634, 0x1f973, 0x1f495, 0x1f496, 0x1f525, 0x2728, 0x1f389, 0x1f64c, 0x1f64f, 0x1f44b, 0x1f917, 0x1f605, 0x1f607, 0x1f4af, 0x1f339, 0x2615].map((code) => String.fromCodePoint(code))].map((emoji) => <button key={emoji} type="button" aria-label={`Insert ${emoji}`}
-                    onPointerDown={(event) => event.preventDefault()} onClick={() => insertEmoji(emoji)}
-                    className="emoji-option">{emoji}</button>)}
-                </div>}
-              </div>
+            <div className="relative flex items-end gap-1 sm:gap-3">
               <textarea
                 ref={composerRef}
+                aria-label="Message"
                 rows={1}
                 value={newMessage}
                 onChange={handleMessageChange}
@@ -1242,6 +1223,19 @@ export default function Chat() {
                   }
                 }}
               />
+              <div data-emoji-picker className="shrink-0">
+                <button type="button" aria-label="Choose emoji" aria-expanded={emojiPickerOpen}
+                  onClick={() => { setEmojiPickerOpen((open) => !open); setActiveReactionMenuId(null); }}
+                  className="flex h-12 w-10 items-center justify-center rounded-full text-rose-200 transition hover:bg-rose-900/40">
+                  {emojiPickerOpen ? <X size={18} /> : <Smile size={18} />}
+                </button>
+                {emojiPickerOpen && <div role="group" aria-label="Emoji picker" className="composer-emoji-picker reaction-picker-enter">
+                  <div className="col-span-6 px-2 py-1 text-xs font-bold text-rose-200">Emoji</div>
+                  {[...REACTION_OPTIONS, ...[0x1f600, 0x1f60d, 0x1f618, 0x1f60a, 0x1f609, 0x1f60e, 0x1f914, 0x1f62d, 0x1f634, 0x1f973, 0x1f495, 0x1f496, 0x1f525, 0x2728, 0x1f389, 0x1f64c, 0x1f64f, 0x1f44b, 0x1f917, 0x1f605, 0x1f607, 0x1f4af, 0x1f339, 0x2615].map((code) => String.fromCodePoint(code))].map((emoji) => <button key={emoji} type="button" aria-label={`Insert ${emoji}`}
+                    onPointerDown={(event) => event.preventDefault()} onClick={() => insertEmoji(emoji)}
+                    className="emoji-option">{emoji}</button>)}
+                </div>}
+              </div>
               <button
                 type="submit"
                 disabled={!newMessage.trim() || !socketConnected}

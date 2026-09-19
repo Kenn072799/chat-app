@@ -1,15 +1,18 @@
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { Reply } from "lucide-react";
 
 const REPLY_DISTANCE = 48;
 const DIRECTION_SLOP = 8;
 
-export default function SwipeMessage({ children, onReply, onSelect, selected, ...props }) {
+export default function SwipeMessage({ children, onReply, onSelect, onLongPress, selected, ...props }) {
   const gesture = useRef(null);
   const surface = useRef(null);
   const suppressClick = useRef(false);
+  const pressTimer = useRef(null);
+  useEffect(() => () => clearTimeout(pressTimer.current), []);
 
   const reset = () => {
+    clearTimeout(pressTimer.current);
     surface.current?.style.setProperty("--swipe", "0px");
     surface.current?.classList.remove("is-dragging", "reply-ready", "swiping-left");
     gesture.current = null;
@@ -22,6 +25,7 @@ export default function SwipeMessage({ children, onReply, onSelect, selected, ..
     const dy = event.clientY - current.y;
     if (!current.locked) {
       if (Math.max(Math.abs(dx), Math.abs(dy)) < DIRECTION_SLOP) return;
+      clearTimeout(pressTimer.current);
       if (Math.abs(dy) > Math.abs(dx)) { reset(); return; }
       current.locked = true;
       suppressClick.current = true;
@@ -40,10 +44,16 @@ export default function SwipeMessage({ children, onReply, onSelect, selected, ..
     <div
       {...props}
       data-selected={selected || undefined}
+      onContextMenu={(event) => { if (gesture.current || suppressClick.current) event.preventDefault(); }}
       onPointerDown={(event) => {
         suppressClick.current = false;
         if (event.pointerType === "mouse" || !event.isPrimary || event.target.closest("button, a")) return;
         gesture.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, distance: 0, locked: false };
+        pressTimer.current = setTimeout(() => {
+          suppressClick.current = true;
+          onLongPress();
+          reset();
+        }, 450);
         // Capture on the stationary wrapper so moving bubbles never lose the finger.
         event.currentTarget.setPointerCapture(event.pointerId);
       }}
@@ -67,6 +77,7 @@ export default function SwipeMessage({ children, onReply, onSelect, selected, ..
         }
       }}
       onClick={(event) => {
+        if (window.matchMedia("(hover: none), (pointer: coarse)").matches) return;
         if (!event.target.closest("button, a") && !window.getSelection()?.toString()) onSelect();
       }}
     >
